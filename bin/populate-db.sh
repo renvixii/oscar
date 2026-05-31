@@ -31,6 +31,6 @@ fi
 
 echo "Disabling default user expiry..."
 mysql --user=root --password="${MYSQL_ROOT_PASSWORD}" oscar << QUERY
-update security set date_ExpireDate=DATE_ADD(CURDATE(), INTERVAL 360 MONTH), b_ExpireSet=1 
-where user_name='oscardoc';
+update security set date_ExpireDate=DATE_ADD(CURDATE(), INTERVAL 360 MONTH), b_ExpireSet=1, forcePasswordReset=0
+where user_name in ('openodoc', 'oscardoc');
 QUERY

@@ -14,12 +14,27 @@ This repo is based on [scoophealth (UVIC)](https://github.com/scoophealth/oscar-
   * `./openosp start`
   * Browse to OSCAR EMR on http://localhost:8080/oscar!
 
-  * Log in with the initial credentials. You will be prompted to change your password upon initial login.
-      - Username: oscardoc
-      - Password: mac2002
-      - 2nd Level Passcode: 1117
+  * Log in with the initial credentials (Open-O / current bootstrap). You may be prompted to change your password on first login unless `mandatory_password_reset=false` in `volumes/oscar.properties`.
+      - Username: `openodoc`
+      - Password: `openo2025`
+      - 2nd Level Passcode: `2025`
+  * If login fails after bootstrap, run `./bin/fix-oscar-login.sh` and restart Oscar.
+  * Legacy installs may still use: `oscardoc` / `mac2002` / `1117`.
 
 Note: for Oscar 19 (rather than OpenOscar) setup instructions, see [here](./OSCAR19.md).
+
+## Sample data (local development)
+
+To seed fake patients, appointments, notes, vitals, meds, and PDF documents for testing (without changing application code):
+
+```bash
+chmod +x scripts/seed-sample-data.sh
+scripts/seed-sample-data.sh --dry-run --insert   # preview
+scripts/seed-sample-data.sh --insert             # apply
+scripts/seed-sample-data.sh --delete             # remove only sample rows
+```
+
+See [scripts/sample-data/README.md](./scripts/sample-data/README.md) for markers, safety rules, and environment overrides.
 
 ## Purpose
 The goal of this repo is to provide a hosting-agnostic (Dockerized) toolkit for automated OSCAR EMR deployment. We want to centralize OSCAR configurations for modern DevOps tools and share [best practices](https://12factor.net/) for modern web application deployment for OSCAR. This may help potential service providers who need to automate deployments, OSCAR integrators/vendors/developers who need to do testing, and self-hosted users. ie)

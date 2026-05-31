@@ -4,6 +4,8 @@ services:
     db:
       restart: 'always'
       image: mariadb:10.5
+      ports:
+        - "3306:3306"
       command: 'mysqld --character-set-server=utf8 --collation-server=utf8_general_ci'
       working_dir: /code
       env_file:
@@ -49,7 +51,29 @@ services:
           limits:
             cpus: '2'
             memory: 15G
-
+  
+    pdffinder:
+      build: ./custom-webapps/pdffinder
+      container_name: open-osp-pdffinder-1
+      ports:
+        - "8082:80"
+      volumes:
+        - ./custom-webapps/pdffinder:/var/www/html
+        - ./volumes/OscarDocument:/var/lib/OscarDocument:ro
+      env_file:
+        - local.env
+      environment:
+        OSCAR_INTEGRATION_ENABLED: "true"
+        OSCAR_DB_HOST: db
+        OSCAR_DB_PORT: "3306"
+        OSCAR_DB_NAME: oscar
+        OSCAR_DB_USER: root
+        OSCAR_DOCUMENT_PATH: /var/lib/OscarDocument
+      networks:
+        - back-tier
+      depends_on:
+        - db
+    
     expedius:
       restart: 'always'
       image: openosp/expedius:latest
