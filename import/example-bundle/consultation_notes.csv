@@ -1,0 +1,3 @@
+old_patient_id,note_date,provider_no,note_text,signed,import_marker
+LEGACY-1001,2026-01-10,999998,"IMPORT_PREP: cough and fever x 3 days. Assessment: acute URI. Plan: symptomatic care.",1,IMPORT_PREP
+LEGACY-1001,2026-01-20,999998,"IMPORT_PREP: symptoms improved.",1,IMPORT_PREP

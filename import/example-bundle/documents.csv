@@ -1,0 +1,4 @@
+old_patient_id,file_name,document_description,document_type,document_class,observation_date,provider_no,content_type
+LEGACY-1001,sample_cbc.pdf,IMPORT_PREP Sample CBC Lab Result,lab,Laboratory,2026-01-11,999998,application/pdf
+LEGACY-1001,sample_referral.pdf,IMPORT_PREP Sample Referral Letter,consult,Consultation,2026-01-12,999998,application/pdf
+LEGACY-1001,missing_xray.pdf,IMPORT_PREP Sample X-Ray Report,radiology,Diagnostic Imaging Report,2026-01-12,999998,application/pdf

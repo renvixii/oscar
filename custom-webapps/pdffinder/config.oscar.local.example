@@ -1,0 +1,14 @@
+<?php
+/**
+ * OSCAR integration — local overrides (not committed; see .gitignore).
+ */
+
+declare(strict_types=1);
+
+// $OSCAR_INTEGRATION_ENABLED = true;
+// $OSCAR_DB_HOST = '127.0.0.1';
+// $OSCAR_DB_PORT = 3306;
+// $OSCAR_DB_NAME = 'oscar';
+// $OSCAR_DB_USER = 'root';
+// $OSCAR_DB_PASSWORD = '26RwTiLhWkY=';
+// $OSCAR_DOCUMENT_PATH = '/home/alo/open-osp/volumes/OscarDocument';

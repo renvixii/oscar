@@ -1,0 +1,159 @@
+{
+  "version": "1",
+  "description": "Expected CSV columns for OpenOSP import preparation bundles (validation only).",
+  "files": {
+    "demographics.csv": {
+      "required": true,
+      "required_columns": [
+        "old_patient_id",
+        "first_name",
+        "last_name",
+        "sex",
+        "date_of_birth"
+      ],
+      "optional_columns": [
+        "chart_no",
+        "hin",
+        "hin_version",
+        "address",
+        "city",
+        "province",
+        "postal",
+        "phone",
+        "phone2",
+        "email",
+        "provider_no",
+        "patient_status",
+        "pref_name",
+        "official_lang",
+        "source_system",
+        "import_batch_id"
+      ]
+    },
+    "appointments.csv": {
+      "required": false,
+      "required_columns": [
+        "old_patient_id",
+        "appointment_date",
+        "start_time",
+        "end_time",
+        "provider_no"
+      ],
+      "optional_columns": [
+        "old_appointment_id",
+        "reason",
+        "notes",
+        "status",
+        "appointment_type",
+        "location"
+      ]
+    },
+    "consultation_notes.csv": {
+      "required": false,
+      "required_columns": [
+        "old_patient_id",
+        "note_date",
+        "provider_no",
+        "note_text"
+      ],
+      "optional_columns": [
+        "old_note_id",
+        "signed",
+        "encounter_type",
+        "old_appointment_id",
+        "import_marker"
+      ]
+    },
+    "allergies.csv": {
+      "required": false,
+      "required_columns": [
+        "old_patient_id",
+        "description"
+      ],
+      "optional_columns": [
+        "reaction",
+        "type_code",
+        "start_date",
+        "archived"
+      ]
+    },
+    "medications.csv": {
+      "required": false,
+      "required_columns": [
+        "old_patient_id",
+        "drug_name",
+        "start_date"
+      ],
+      "optional_columns": [
+        "generic_name",
+        "dosage",
+        "frequency",
+        "route",
+        "end_date",
+        "provider_no",
+        "instructions",
+        "archived"
+      ]
+    },
+    "diagnoses.csv": {
+      "required": false,
+      "required_columns": [
+        "old_patient_id",
+        "diagnosis_description",
+        "diagnosis_date"
+      ],
+      "optional_columns": [
+        "icd_code",
+        "status",
+        "provider_no",
+        "notes"
+      ]
+    },
+    "lab_results.csv": {
+      "required": false,
+      "required_columns": [
+        "old_patient_id",
+        "collection_date",
+        "test_name",
+        "result_value"
+      ],
+      "optional_columns": [
+        "units",
+        "reference_range",
+        "abnormal_flag",
+        "panel_name",
+        "notes"
+      ]
+    },
+    "documents.csv": {
+      "required": false,
+      "required_columns": [
+        "old_patient_id",
+        "file_name",
+        "document_description"
+      ],
+      "optional_columns": [
+        "document_type",
+        "document_class",
+        "observation_date",
+        "provider_no",
+        "content_type",
+        "old_document_id"
+      ]
+    },
+    "id_mapping.csv": {
+      "required": false,
+      "description": "Filled after a successful import to map legacy IDs to Oscar demographic_no values.",
+      "required_columns": [
+        "old_patient_id"
+      ],
+      "optional_columns": [
+        "oscar_demographic_no",
+        "chart_no",
+        "imported_at",
+        "import_batch_id",
+        "notes"
+      ]
+    }
+  }
+}

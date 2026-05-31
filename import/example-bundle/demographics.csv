@@ -1,0 +1,3 @@
+old_patient_id,first_name,last_name,sex,date_of_birth,chart_no,hin,address,city,province,postal,phone,email,provider_no,source_system,import_batch_id
+LEGACY-1001,TRAIN_Juan,TRAIN_DelaCruz,M,1988-04-12,IMP-1001,9999999101,100 Training Lane,Kitchener,ON,N2G 1A1,5195551001,train.juan@example.invalid,999998,legacy_clinic_x,IMPORT-DEV-001
+LEGACY-1002,TRAIN_Maria,TRAIN_Santos,F,1975-09-03,IMP-1002,9999999102,200 Sample Road,Waterloo,ON,N2J 2B2,5195551002,train.maria@example.invalid,999998,legacy_clinic_x,IMPORT-DEV-001

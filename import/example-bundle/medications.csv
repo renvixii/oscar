@@ -1,0 +1,2 @@
+old_patient_id,drug_name,generic_name,dosage,start_date,end_date,provider_no,instructions
+LEGACY-1001,Amoxicillin 500mg,Amoxicillin,500mg TID,2026-01-10,2026-01-17,999998,IMPORT_PREP sample Rx

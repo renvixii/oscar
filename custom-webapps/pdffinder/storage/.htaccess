@@ -1,0 +1,4 @@
+# Deny direct web access to the index JSON (Apache)
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>

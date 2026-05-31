@@ -1,0 +1,13 @@
+<?php
+/**
+ * Optional overrides for host-only dev (php -S). Not needed for Docker:
+ *   docker compose up -d --build pdffinder
+ * Compose sets OSCAR_DB_HOST=db, OSCAR_DOCUMENT_PATH, and password from local.env.
+ */
+
+declare(strict_types=1);
+
+// $OSCAR_INTEGRATION_ENABLED = true;
+// $OSCAR_DB_HOST = '127.0.0.1';
+// $OSCAR_DB_PASSWORD = 'from-local.env';
+// $OSCAR_DOCUMENT_PATH = '/home/alo/open-osp/volumes/OscarDocument';

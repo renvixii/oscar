@@ -1,0 +1,389 @@
+/* PDF Finder — simple, mobile-friendly styles */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.5;
+    color: #1a1a1a;
+    background: #f0f2f5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+a {
+    color: #2563eb;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+.container {
+    width: 100%;
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 0 1rem;
+}
+
+.site-header {
+    background: #fff;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 0.75rem 0;
+    margin-bottom: 1.5rem;
+}
+
+.site-header .container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.logo {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+}
+
+.logo a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.logo a:hover {
+    text-decoration: none;
+    color: #2563eb;
+}
+
+.nav {
+    display: flex;
+    gap: 1rem;
+}
+
+.nav a {
+    color: #4b5563;
+    font-weight: 500;
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+}
+
+.nav a.is-active,
+.nav a:hover {
+    color: #2563eb;
+    background: #eff6ff;
+    text-decoration: none;
+}
+
+.main-content {
+    flex: 1;
+    padding-bottom: 2rem;
+}
+
+.card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    padding: 1.5rem;
+    margin-bottom: 1.25rem;
+}
+
+.card--center {
+    text-align: center;
+    max-width: 640px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.page-title {
+    margin: 0 0 0.5rem;
+    font-size: 1.5rem;
+}
+
+.page-subtitle {
+    margin: 0 0 1.25rem;
+    color: #6b7280;
+}
+
+.search-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+@media (min-width: 600px) {
+    .search-form {
+        flex-direction: row;
+    }
+}
+
+.search-input {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    outline: none;
+}
+
+.search-input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.btn {
+    display: inline-block;
+    padding: 0.65rem 1.1rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+    line-height: 1.2;
+}
+
+.btn:hover {
+    text-decoration: none;
+}
+
+.btn-primary {
+    background: #2563eb;
+    color: #fff;
+}
+
+.btn-primary:hover {
+    background: #1d4ed8;
+    color: #fff;
+}
+
+.btn-secondary {
+    background: #e5e7eb;
+    color: #1f2937;
+}
+
+.btn-secondary:hover {
+    background: #d1d5db;
+    color: #111;
+}
+
+.btn-sm {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.85rem;
+}
+
+.btn-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.alert {
+    padding: 0.85rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+
+.alert-warning {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+}
+
+.alert-error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}
+
+.alert-success {
+    background: #d1fae5;
+    color: #065f46;
+    border: 1px solid #6ee7b7;
+}
+
+.alert-info {
+    background: #e0f2fe;
+    color: #075985;
+    border: 1px solid #7dd3fc;
+}
+
+.meta {
+    color: #6b7280;
+    font-size: 0.9rem;
+    margin: 0 0 1rem;
+}
+
+.results-table-wrap {
+    overflow-x: auto;
+}
+
+.results-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+}
+
+.results-table th,
+.results-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid #e5e7eb;
+    vertical-align: top;
+}
+
+.results-table th {
+    background: #f9fafb;
+    font-weight: 600;
+    color: #374151;
+}
+
+.results-table tr:last-child td {
+    border-bottom: none;
+}
+
+.filename {
+    font-weight: 600;
+    word-break: break-word;
+}
+
+.folder {
+    color: #6b7280;
+    font-size: 0.85rem;
+    word-break: break-all;
+}
+
+/* Mobile: stack result rows as cards */
+@media (max-width: 720px) {
+    .results-table thead {
+        display: none;
+    }
+
+    .results-table tr {
+        display: block;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        margin-bottom: 0.75rem;
+        padding: 0.5rem;
+    }
+
+    .results-table td {
+        display: block;
+        border: none;
+        padding: 0.35rem 0.5rem;
+    }
+
+    .results-table td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: #6b7280;
+        display: block;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 0.15rem;
+    }
+
+    .results-table td.actions::before {
+        display: none;
+    }
+}
+
+.viewer-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.viewer-title {
+    margin: 0;
+    font-size: 1.1rem;
+    word-break: break-word;
+}
+
+.pdf-frame-wrap {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    overflow: hidden;
+    min-height: 70vh;
+}
+
+.pdf-frame {
+    width: 100%;
+    height: 75vh;
+    border: none;
+    display: block;
+}
+
+.site-footer {
+    padding: 1rem 0;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 0.85rem;
+    border-top: 1px solid #e5e7eb;
+    background: #fff;
+    margin-top: auto;
+}
+
+.site-footer p {
+    margin: 0;
+}
+
+.search-form--stacked {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.search-select,
+.source-label {
+    font-size: 0.95rem;
+}
+
+.source-label {
+    font-weight: 500;
+    color: #4b5563;
+}
+
+.badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 6px;
+    white-space: nowrap;
+}
+
+.badge-oscar {
+    background: #dbeafe;
+    color: #1e40af;
+}
+
+.badge-source-pdffinder {
+    background: #e5e7eb;
+    color: #374151;
+}
+
+.badge-source-oscar_db {
+    background: #d1fae5;
+    color: #065f46;
+}
+
+.badge-source-oscar_document {
+    background: #ede9fe;
+    color: #5b21b6;
+}

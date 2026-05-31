@@ -1,0 +1,39 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 365 >>
+stream
+BT /F1 16 Tf 72 750 Td (OPENOSP SAMPLE - CBC Blood Test) Tj
+72 702 Td (Patient: TEST_ALICE SAMPLE_JONES) Tj
+72 684 Td (Marker: OPENOSP_SAMPLE_DATA) Tj
+72 666 Td (Result: WBC 6.2 x10^9/L \(ref 4.0-11.0\)) Tj
+72 648 Td (Result: Hgb 138 g/L \(ref 120-160\)) Tj
+72 630 Td (Result: Platelets 245 x10^9/L) Tj
+72 612 Td (Fictional report for local development only.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000657 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+727
+%EOF

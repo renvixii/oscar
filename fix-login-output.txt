@@ -1,0 +1,13 @@
+Applying login fix (openodoc + legacy oscardoc expiry)...
+user_name	pin	b_ExpireSet	date_ExpireDate	forcePasswordReset
+openodoc	2025	1	2056-05-30	0
+Restarting Oscar...
+ Container open-osp_oscar_1 Restarting 
+ Container open-osp_oscar_1 Started 
+
+Try logging in at http://localhost:8080/oscar with:
+  Username: openodoc
+  Password: openo2025
+  2nd-level PIN: 2025
+
+(README oscardoc/mac2002/1117 is outdated for current Open-O databases.)

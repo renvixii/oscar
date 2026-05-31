@@ -1,0 +1,31 @@
+# Example: run PDF Finder beside OpenOSP (optional — not wired into main open-osp compose).
+# From this directory: docker compose -f docker-compose.example.yml up -d
+#
+# Prerequisites:
+#   - OpenOSP stack running (docker network "open-osp_back-tier" or adjust network name)
+#   - local.env in open-osp root for MYSQL_ROOT_PASSWORD
+
+services:
+  pdffinder:
+    build: .
+    ports:
+      - "8082:80"
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+      - ../../volumes/OscarDocument:/var/lib/OscarDocument:ro
+    environment:
+      OSCAR_INTEGRATION_ENABLED: "true"
+      OSCAR_DB_HOST: db
+      OSCAR_DB_PORT: "3306"
+      OSCAR_DB_NAME: oscar
+      OSCAR_DB_USER: root
+      OSCAR_DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      OSCAR_DOCUMENT_PATH: /var/lib/OscarDocument
+    networks:
+      - back-tier
+
+networks:
+  back-tier:
+    external: true
+    name: open-osp_back-tier
