@@ -30,7 +30,7 @@ services:
 
     oscar:
       restart: 'always'
-      image: openosp/open-osp:latest
+      image: renvixii/open-osp:latest
       build: docker/oscar
       volumes:
         - ./volumes/oscar.properties:/root/oscar.properties
@@ -53,6 +53,7 @@ services:
             memory: 15G
   
     pdffinder:
+      image: renvixii/pdffinder:latest
       build: ./custom-webapps/pdffinder
       container_name: open-osp-pdffinder-1
       ports:
@@ -76,7 +77,7 @@ services:
     
     expedius:
       restart: 'always'
-      image: openosp/expedius:latest
+      image: renvixii/expedius:latest
       build: docker/expedius
       volumes:
         - ./volumes/ssl.crt:/usr/local/tomcat/conf/ssl.crt
@@ -96,7 +97,7 @@ services:
 
     faxws:
       restart: 'always'
-      image: openosp/faxws:latest
+      image: renvixii/faxws:latest
       build: docker/faxws
       volumes:
         - ./volumes/OscarDocument:/var/lib/OscarDocument
