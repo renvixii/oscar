@@ -12,7 +12,7 @@ This repo is based on [scoophealth (UVIC)](https://github.com/scoophealth/oscar-
   * If building a custom Oscar branch not on DockerHub, do `openosp build oscar`
   * if you need a database, `./openosp bootstrap`
   * `./openosp start`
-  * Browse to OSCAR EMR on http://localhost:8080/oscar!
+  * Browse to OSCAR EMR on http://localhost:9080/oscar!
 
   * Log in with the initial credentials (Open-O / current bootstrap). You may be prompted to change your password on first login unless `mandatory_password_reset=false` in `volumes/oscar.properties`.
       - Username: `openodoc`

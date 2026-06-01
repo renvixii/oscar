@@ -57,7 +57,7 @@ services:
       build: ./custom-webapps/pdffinder
       container_name: open-osp-pdffinder-1
       ports:
-        - "8082:80"
+        - "9082:80"
       volumes:
         - ./custom-webapps/pdffinder:/var/www/html
         - ./volumes/OscarDocument:/var/lib/OscarDocument:ro

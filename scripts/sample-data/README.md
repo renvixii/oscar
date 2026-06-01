@@ -70,7 +70,7 @@ scripts/
 
 ## Viewing sample patients in Oscar
 
-Log in at http://localhost:8080/oscar and search demographics for `SAMPLE` or chart numbers `OPENOSP-001` … `OPENOSP-005`.
+Log in at http://localhost:9080/oscar and search demographics for `SAMPLE` or chart numbers `OPENOSP-001` … `OPENOSP-005`.
 
 ## Safety
 

@@ -33,7 +33,7 @@ import/import-bundle.sh /path/to/bundle --dry-run --import
 # 3. Import (prompts for batch id confirmation; add --force to skip)
 import/import-bundle.sh /path/to/bundle --import
 
-# 4. Verify in Oscar at http://localhost:8080/oscar
+# 4. Verify in Oscar at http://localhost:9080/oscar
 
 # 5. Purge this batch only (if needed on dev)
 import/import-bundle.sh /path/to/bundle --dry-run --purge --batch-id YOUR-BATCH-ID

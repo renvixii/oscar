@@ -23,7 +23,7 @@ Complete these steps before you practice the workflow.
 ### 1.1 Application is running
 
 - Your OpenOSP Docker stack should be started (for example, after `./openosp start` from the project setup).
-- You should be able to open Oscar in a browser, typically at **http://localhost:8080/oscar** (your URL may differ).
+- You should be able to open Oscar in a browser, typically at **http://localhost:9080/oscar** (your URL may differ).
 
 ### 1.2 You can log in
 

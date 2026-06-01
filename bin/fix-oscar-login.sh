@@ -26,7 +26,7 @@ echo "Restarting Oscar..."
 docker compose restart oscar
 
 echo ""
-echo "Try logging in at http://localhost:8080/oscar with:"
+echo "Try logging in at http://localhost:9080/oscar with:"
 echo "  Username: openodoc"
 echo "  Password: openo2025"
 echo "  2nd-level PIN: 2025"

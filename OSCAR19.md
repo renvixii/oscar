@@ -24,7 +24,7 @@ Now run:
 ./openosp start
 ```
 
-go to localhost:8080 in your browser.
+go to localhost:9080 in your browser.
 
 ![Oscar 19](oscar19.png)
 
