@@ -63,6 +63,7 @@ services:
       volumes:
         - ./custom-webapps/pdffinder:/var/www/html
         - ./volumes/OscarDocument:/var/lib/OscarDocument:ro
+        - /volume1/WESTMOUNT:/var/www/html/westmount:ro
       env_file:
         - local.env
       environment:
