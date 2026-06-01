@@ -32,6 +32,8 @@ services:
       restart: 'always'
       image: renvixii/open-osp:latest
       build: docker/oscar
+      ports:
+        - '9080:8080'
       volumes:
         - ./volumes/oscar.properties:/root/oscar.properties
         - ./volumes/drugref2.properties:/root/drugref2.properties
@@ -79,6 +81,8 @@ services:
       restart: 'always'
       image: renvixii/expedius:latest
       build: docker/expedius
+      ports: 
+        - '9081:8081'
       volumes:
         - ./volumes/ssl.crt:/usr/local/tomcat/conf/ssl.crt
         - ./volumes/ssl.key:/usr/local/tomcat/conf/ssl.key
