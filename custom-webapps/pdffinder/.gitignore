@@ -1,2 +1,4 @@
 config.oscar.local.php
+config.smb.local.php
 storage/pdf_index.json
+storage/smb_index_*.json

@@ -1,18 +1,22 @@
 <?php
 /**
- * PDF Finder — search results (pdffinder index + optional OSCAR sources)
+ * PDF Finder — search results (local index + optional OSCAR + SMB sources)
  */
 
 declare(strict_types=1);
 
 require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/oscar_config.php';
+require_once __DIR__ . '/includes/smb_config.php';
 
 $query = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
-$source = isset($_GET['source']) ? strtolower(trim((string) $_GET['source'])) : 'all';
+$source = isset($_GET['source']) ? pdf_finder_normalize_search_source((string) $_GET['source']) : 'all';
 $oscarEnabled = pdf_finder_oscar_enabled();
+$smbEnabled = pdf_finder_smb_enabled();
+$extendedSources = pdf_finder_extended_sources_enabled();
+$searchAvailable = pdf_finder_search_available();
 
-if (!$oscarEnabled) {
+if (!$extendedSources) {
     $source = 'pdffinder';
 }
 
@@ -20,28 +24,28 @@ $index = pdf_finder_load_index();
 $results = [];
 $warnings = [];
 $searched = false;
+$sourceOptions = pdf_finder_search_source_options();
 
 if ($query !== '') {
     $searched = true;
-    if ($source === 'pdffinder') {
-        if ($index !== null) {
-            $unified = pdf_finder_search_unified($query, 'pdffinder');
-            $results = $unified['results'];
-            $warnings = $unified['warnings'];
-        }
+    if (!in_array($source, $sourceOptions, true)) {
+        $source = 'all';
+    }
+    if ($source === 'pdffinder' && $index === null) {
+        $warnings[] = 'PDF Finder index not found. Rebuild the local index or choose another source.';
     } else {
         $unified = pdf_finder_search_unified($query, $source);
         $results = $unified['results'];
         $warnings = $unified['warnings'];
-        if ($index === null && $source === 'all') {
-            $warnings[] = 'PDF Finder index not found — showing OSCAR results only. Rebuild the index to include local pdf-files.';
+        if ($index === null && $source === 'all' && ($oscarEnabled || $smbEnabled)) {
+            $warnings[] = 'PDF Finder local index not found — other sources may still return results.';
         }
     }
 }
 
 $resultCount = count($results);
 $indexedCount = $index['count'] ?? 0;
-$showOscarSources = $oscarEnabled;
+$showSourceColumn = $extendedSources;
 
 pdf_finder_header('Search Results', 'search');
 ?>
@@ -54,11 +58,15 @@ pdf_finder_header('Search Results', 'search');
             PDF index not found. Please <a href="rebuild-index.php">rebuild the index</a> first.
         </div>
     <?php elseif ($index !== null): ?>
-        <p class="meta"><?= (int) $indexedCount ?> PDF<?= $indexedCount === 1 ? '' : 's' ?> in PDF Finder index</p>
+        <p class="meta"><?= (int) $indexedCount ?> PDF<?= $indexedCount === 1 ? '' : 's' ?> in local PDF Finder index</p>
     <?php endif; ?>
 
     <?php if ($oscarEnabled): ?>
-        <p class="meta">OSCAR integration is <strong>enabled</strong> (read-only database and OscarDocument search).</p>
+        <p class="meta">OSCAR integration: <strong>enabled</strong> (read-only database and OscarDocument search).</p>
+    <?php endif; ?>
+
+    <?php if ($smbEnabled): ?>
+        <p class="meta">SMB integration: <strong>enabled</strong> (read-only NAS search via local indexes).</p>
     <?php endif; ?>
 
     <form class="search-form search-form--stacked" action="search.php" method="get" role="search">
@@ -69,19 +77,20 @@ pdf_finder_header('Search Results', 'search');
             placeholder="Search by patient name, chart number, file name, or document title"
             value="<?= h($query) ?>"
             autocomplete="off"
-            <?= ($index === null && !$oscarEnabled) ? 'disabled' : '' ?>
+            <?= $searchAvailable ? '' : 'disabled' ?>
             autofocus
         >
-        <?php if ($showOscarSources): ?>
+        <?php if ($extendedSources): ?>
             <label class="source-label" for="source">Search in</label>
             <select name="source" id="source" class="search-select">
-                <option value="all" <?= $source === 'all' ? 'selected' : '' ?>>All sources</option>
-                <option value="pdffinder" <?= $source === 'pdffinder' ? 'selected' : '' ?>>PDF Finder folders only</option>
-                <option value="oscar_db" <?= $source === 'oscar_db' ? 'selected' : '' ?>>OSCAR database</option>
-                <option value="oscar_document" <?= $source === 'oscar_document' ? 'selected' : '' ?>>OscarDocument PDF files</option>
+                <?php foreach ($sourceOptions as $opt): ?>
+                    <option value="<?= h($opt) ?>" <?= $source === $opt ? 'selected' : '' ?>>
+                        <?= h(pdf_finder_search_source_label($opt)) ?>
+                    </option>
+                <?php endforeach; ?>
             </select>
         <?php endif; ?>
-        <button type="submit" class="btn btn-primary" <?= ($index === null && !$oscarEnabled) ? 'disabled' : '' ?>>Search</button>
+        <button type="submit" class="btn btn-primary" <?= $searchAvailable ? '' : 'disabled' ?>>Search</button>
     </form>
 </div>
 
@@ -102,8 +111,8 @@ pdf_finder_header('Search Results', 'search');
             <p class="meta">
                 <strong><?= (int) $resultCount ?></strong>
                 result<?= $resultCount === 1 ? '' : 's' ?> for &ldquo;<?= h($query) ?>&rdquo;
-                <?php if ($showOscarSources): ?>
-                    &middot; source: <?= h($source) ?>
+                <?php if ($extendedSources): ?>
+                    &middot; filter: <?= h(pdf_finder_search_source_label($source)) ?>
                 <?php endif; ?>
             </p>
 
@@ -113,7 +122,7 @@ pdf_finder_header('Search Results', 'search');
                         <tr>
                             <th>Patient</th>
                             <th>File name</th>
-                            <?php if ($showOscarSources): ?>
+                            <?php if ($showSourceColumn): ?>
                                 <th>Source</th>
                             <?php endif; ?>
                             <th>Document / folder</th>
@@ -142,9 +151,9 @@ pdf_finder_header('Search Results', 'search');
                                 <td data-label="File name">
                                     <span class="filename"><?= h($file['filename'] ?? '') ?></span>
                                 </td>
-                                <?php if ($showOscarSources): ?>
+                                <?php if ($showSourceColumn): ?>
                                     <td data-label="Source">
-                                        <span class="badge badge-source-<?= h((string) ($file['source'] ?? 'pdffinder')) ?>">
+                                        <span class="badge badge-source-<?= h(str_replace(':', '-', (string) ($file['source'] ?? 'pdffinder'))) ?>">
                                             <?= h(pdf_finder_result_source_label($file)) ?>
                                         </span>
                                     </td>

@@ -264,13 +264,97 @@ function pdf_finder_build_index(): array
 }
 
 /**
- * Valid search source keys when OSCAR integration is enabled.
+ * Valid search source keys (dynamic: OSCAR + SMB sources when enabled).
  *
  * @return list<string>
  */
 function pdf_finder_search_source_options(): array
 {
-    return ['all', 'pdffinder', 'oscar_db', 'oscar_document'];
+    $options = ['all', 'pdffinder'];
+
+    if (is_file(__DIR__ . '/oscar_config.php')) {
+        require_once __DIR__ . '/oscar_config.php';
+        if (pdf_finder_oscar_enabled()) {
+            $options[] = 'oscar_db';
+            $options[] = 'oscar_document';
+        }
+    }
+
+    if (is_file(__DIR__ . '/smb_config.php')) {
+        require_once __DIR__ . '/smb_config.php';
+        if (pdf_finder_smb_enabled()) {
+            $options[] = 'smb';
+            foreach (pdf_finder_smb_enabled_sources() as $source) {
+                $options[] = 'smb:' . $source['id'];
+            }
+        }
+    }
+
+    return $options;
+}
+
+/**
+ * Human label for a search source dropdown value.
+ */
+function pdf_finder_search_source_label(string $source): string
+{
+    if ($source === 'all') {
+        return 'All sources';
+    }
+    if ($source === 'pdffinder') {
+        return 'PDF Finder folders only';
+    }
+    if ($source === 'oscar_db') {
+        return 'OSCAR database';
+    }
+    if ($source === 'oscar_document') {
+        return 'OscarDocument PDF files';
+    }
+    if ($source === 'smb') {
+        return 'All SMB shares';
+    }
+    if (str_starts_with($source, 'smb:')) {
+        $id = substr($source, 4);
+        require_once __DIR__ . '/smb_config.php';
+        $src = pdf_finder_smb_source_by_id($id);
+        return $src !== null ? $src['label'] . ' (SMB)' : 'SMB';
+    }
+    return $source;
+}
+
+function pdf_finder_extended_sources_enabled(): bool
+{
+    $oscar = false;
+    if (is_file(__DIR__ . '/oscar_config.php')) {
+        require_once __DIR__ . '/oscar_config.php';
+        $oscar = pdf_finder_oscar_enabled();
+    }
+    $smb = false;
+    if (is_file(__DIR__ . '/smb_config.php')) {
+        require_once __DIR__ . '/smb_config.php';
+        $smb = pdf_finder_smb_enabled();
+    }
+    return $oscar || $smb;
+}
+
+function pdf_finder_search_available(): bool
+{
+    if (pdf_finder_extended_sources_enabled()) {
+        return true;
+    }
+    return pdf_finder_load_index() !== null;
+}
+
+/**
+ * Normalize search source parameter (preserve SMB source id case).
+ */
+function pdf_finder_normalize_search_source(string $source): string
+{
+    $source = trim($source);
+    if (str_starts_with($source, 'smb:')) {
+        return 'smb:' . substr($source, 4);
+    }
+    return strtolower($source);
 }
 
 /**
@@ -288,12 +372,13 @@ function pdf_finder_search_unified(string $query, string $source = 'all'): array
         return ['results' => [], 'warnings' => []];
     }
 
-    $source = strtolower($source);
+    $source = pdf_finder_normalize_search_source($source);
     if (!in_array($source, pdf_finder_search_source_options(), true)) {
         $source = 'all';
     }
 
     require_once __DIR__ . '/oscar.php';
+    require_once __DIR__ . '/smb.php';
 
     $pdffinderRows = [];
     if ($source === 'all' || $source === 'pdffinder') {
@@ -323,10 +408,42 @@ function pdf_finder_search_unified(string $query, string $source = 'all'): array
         $warnings[] = 'OSCAR integration is disabled. Enable it in config.oscar.local.php or environment variables.';
     }
 
+    $smbRows = [];
+    if (pdf_finder_smb_enabled() && ($source === 'all' || $source === 'smb' || str_starts_with($source, 'smb:'))) {
+        $smbFilter = null;
+        if (str_starts_with($source, 'smb:') && $source !== 'smb') {
+            $smbFilter = substr($source, 4);
+            if (!pdf_finder_smb_valid_source_id($smbFilter)) {
+                $warnings[] = 'Invalid SMB source selected.';
+                $smbFilter = null;
+            }
+        }
+        $smbRows = pdf_finder_smb_search($query, $smbFilter);
+        if ($smbRows === [] && ($source === 'smb' || str_starts_with($source, 'smb:'))) {
+            $hasIndex = false;
+            foreach (pdf_finder_smb_enabled_sources() as $src) {
+                if ($smbFilter !== null && $src['id'] !== $smbFilter) {
+                    continue;
+                }
+                if (pdf_finder_smb_load_index($src['id']) !== null) {
+                    $hasIndex = true;
+                    break;
+                }
+            }
+            if (!$hasIndex) {
+                $warnings[] = 'No SMB index found. Rebuild SMB indexes on the Rebuild Index page.';
+            }
+        }
+    } elseif ($source === 'smb' || str_starts_with($source, 'smb:')) {
+        $warnings[] = 'SMB integration is disabled. Configure sources in config.smb.local.php.';
+    }
+
     if ($source === 'all') {
-        $results = pdf_finder_merge_results($pdffinderRows, $oscarRows);
+        $results = pdf_finder_merge_all_results($pdffinderRows, $oscarRows, $smbRows);
     } elseif ($source === 'pdffinder') {
         $results = $pdffinderRows;
+    } elseif ($source === 'smb' || str_starts_with($source, 'smb:')) {
+        $results = $smbRows;
     } else {
         $results = $oscarRows;
     }
@@ -335,19 +452,51 @@ function pdf_finder_search_unified(string $query, string $source = 'all'): array
 }
 
 /**
+ * Merge pdffinder, OSCAR, and SMB results; dedupe local paths where applicable.
+ *
+ * @param list<array<string, mixed>> $pdffinder
+ * @param list<array<string, mixed>> $oscar
+ * @param list<array<string, mixed>> $smb
+ * @return list<array<string, mixed>>
+ */
+function pdf_finder_merge_all_results(array $pdffinder, array $oscar, array $smb): array
+{
+    $merged = pdf_finder_merge_results($pdffinder, $oscar);
+    $ids = [];
+    foreach ($merged as $row) {
+        if (!empty($row['id'])) {
+            $ids[(string) $row['id']] = true;
+        }
+    }
+    foreach ($smb as $row) {
+        $id = (string) ($row['id'] ?? '');
+        if ($id !== '' && isset($ids[$id])) {
+            continue;
+        }
+        if ($id !== '') {
+            $ids[$id] = true;
+        }
+        $merged[] = $row;
+    }
+    return $merged;
+}
+
+/**
  * View URL for a search result row.
  */
 function pdf_finder_result_view_url(array $entry, string $query = ''): string
 {
     $id = (string) ($entry['id'] ?? '');
-    $source = (string) ($entry['source'] ?? 'pdffinder');
     $q = $query !== '' ? '&q=' . rawurlencode($query) : '';
 
-    if ($source === 'pdffinder' || !str_starts_with($id, 'oscar:')) {
-        return 'view.php?id=' . rawurlencode($id) . $q;
+    if (str_starts_with($id, 'smb:')) {
+        return 'view-smb.php?id=' . rawurlencode($id) . $q;
+    }
+    if (str_starts_with($id, 'oscar:')) {
+        return 'view-oscar.php?id=' . rawurlencode($id) . $q;
     }
 
-    return 'view-oscar.php?id=' . rawurlencode($id) . $q;
+    return 'view.php?id=' . rawurlencode($id) . $q;
 }
 
 /**
@@ -356,13 +505,15 @@ function pdf_finder_result_view_url(array $entry, string $query = ''): string
 function pdf_finder_result_download_url(array $entry): string
 {
     $id = (string) ($entry['id'] ?? '');
-    $source = (string) ($entry['source'] ?? 'pdffinder');
 
-    if ($source === 'pdffinder' || !str_starts_with($id, 'oscar:')) {
-        return 'download.php?id=' . rawurlencode($id);
+    if (str_starts_with($id, 'smb:')) {
+        return 'download-smb.php?id=' . rawurlencode($id);
+    }
+    if (str_starts_with($id, 'oscar:')) {
+        return 'download-oscar.php?id=' . rawurlencode($id);
     }
 
-    return 'download-oscar.php?id=' . rawurlencode($id);
+    return 'download.php?id=' . rawurlencode($id);
 }
 
 /**
@@ -372,7 +523,11 @@ function pdf_finder_result_source_label(array $entry): string
 {
     $source = (string) ($entry['source'] ?? 'pdffinder');
     if ($source === 'pdffinder') {
-        return 'PDF Finder';
+        return 'Local';
+    }
+    if (str_starts_with($source, 'smb')) {
+        require_once __DIR__ . '/smb.php';
+        return pdf_finder_smb_source_label($entry);
     }
     require_once __DIR__ . '/oscar.php';
     return pdf_finder_oscar_source_label($source);
@@ -465,9 +620,14 @@ function pdf_finder_format_date(int $timestamp): string
 function pdf_finder_header(string $title, string $active = ''): void
 {
     $oscarOn = false;
+    $smbOn = false;
     if (is_file(__DIR__ . '/oscar_config.php')) {
         require_once __DIR__ . '/oscar_config.php';
         $oscarOn = pdf_finder_oscar_enabled();
+    }
+    if (is_file(__DIR__ . '/smb_config.php')) {
+        require_once __DIR__ . '/smb_config.php';
+        $smbOn = pdf_finder_smb_enabled();
     }
     ?>
 <!DOCTYPE html>
@@ -488,6 +648,9 @@ function pdf_finder_header(string $title, string $active = ''): void
             </nav>
             <?php if ($oscarOn): ?>
                 <span class="badge badge-oscar" title="OSCAR integration enabled">OSCAR on</span>
+            <?php endif; ?>
+            <?php if ($smbOn): ?>
+                <span class="badge badge-smb" title="SMB integration enabled">SMB on</span>
             <?php endif; ?>
         </div>
     </header>

@@ -373,6 +373,17 @@ a:hover {
     color: #1e40af;
 }
 
+.badge-smb {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.section-title {
+    font-size: 1.1rem;
+    margin: 0 0 0.75rem;
+    font-weight: 600;
+}
+
 .badge-source-pdffinder {
     background: #e5e7eb;
     color: #374151;
@@ -386,4 +397,10 @@ a:hover {
 .badge-source-oscar_document {
     background: #ede9fe;
     color: #5b21b6;
+}
+
+.badge-source-smb-westmount,
+.badge-source-smb {
+    background: #fef3c7;
+    color: #92400e;
 }

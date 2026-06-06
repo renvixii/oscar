@@ -7,13 +7,19 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/includes/functions.php';
 require_once __DIR__ . '/includes/oscar_config.php';
+require_once __DIR__ . '/includes/smb_config.php';
 
 $query = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
 $oscarEnabled = pdf_finder_oscar_enabled();
+$smbEnabled = pdf_finder_smb_enabled();
+$searchAvailable = pdf_finder_search_available();
 
-// If a query is present on the home URL, forward to the search results page.
 if ($query !== '') {
-    header('Location: search.php?q=' . rawurlencode($query));
+    $params = 'q=' . rawurlencode($query);
+    if ($oscarEnabled || $smbEnabled) {
+        $params .= '&source=all';
+    }
+    header('Location: search.php?' . $params);
     exit;
 }
 
@@ -27,21 +33,32 @@ pdf_finder_header('Search', 'search');
     <h2 class="page-title">Find a PDF</h2>
     <p class="page-subtitle">Search by first name, last name, or patient ID</p>
 
-    <?php if ($index === null && !$oscarEnabled): ?>
+    <?php if ($index === null && !$oscarEnabled && !$smbEnabled): ?>
         <div class="alert alert-warning">
             PDF index not found. Please <a href="rebuild-index.php">rebuild the index</a> first.
         </div>
-    <?php elseif ($index === null && $oscarEnabled): ?>
+    <?php elseif ($index === null && ($oscarEnabled || $smbEnabled)): ?>
         <div class="alert alert-warning">
-            PDF Finder index not found — you can still search <strong>OSCAR</strong> sources.
-            <a href="rebuild-index.php">Rebuild the index</a> to include local <code>pdf-files</code>.
+            Local PDF index not found — you can still search
+            <?php if ($oscarEnabled && $smbEnabled): ?>
+                <strong>OSCAR</strong> and <strong>SMB</strong> sources.
+            <?php elseif ($oscarEnabled): ?>
+                <strong>OSCAR</strong> sources.
+            <?php else: ?>
+                <strong>SMB</strong> sources.
+            <?php endif; ?>
+            <a href="rebuild-index.php">Rebuild the local index</a> to include <code>pdf-files</code> folders.
         </div>
     <?php else: ?>
-        <p class="meta"><?= (int) $indexedCount ?> PDF<?= $indexedCount === 1 ? '' : 's' ?> indexed (PDF Finder folders)</p>
+        <p class="meta"><?= (int) $indexedCount ?> PDF<?= $indexedCount === 1 ? '' : 's' ?> indexed (local folders)</p>
     <?php endif; ?>
 
     <?php if ($oscarEnabled): ?>
-        <p class="meta">OSCAR integration: <strong>on</strong> — optional search in Oscar database and OscarDocument.</p>
+        <p class="meta">OSCAR integration: <strong>on</strong></p>
+    <?php endif; ?>
+
+    <?php if ($smbEnabled): ?>
+        <p class="meta">SMB integration: <strong>on</strong> — read-only NAS shares via local indexes.</p>
     <?php endif; ?>
 
     <form class="search-form" action="search.php" method="get" role="search">
@@ -51,12 +68,12 @@ pdf_finder_header('Search', 'search');
             class="search-input"
             placeholder="Search by patient name, chart number, or file name"
             autocomplete="off"
-            <?= ($index === null && !$oscarEnabled) ? 'disabled' : '' ?>
+            <?= $searchAvailable ? '' : 'disabled' ?>
         >
-        <?php if ($oscarEnabled): ?>
+        <?php if ($oscarEnabled || $smbEnabled): ?>
             <input type="hidden" name="source" value="all">
         <?php endif; ?>
-        <button type="submit" class="btn btn-primary" <?= ($index === null && !$oscarEnabled) ? 'disabled' : '' ?>>Search</button>
+        <button type="submit" class="btn btn-primary" <?= $searchAvailable ? '' : 'disabled' ?>>Search</button>
     </form>
 </div>
 

@@ -1,0 +1,37 @@
+<?php
+/**
+ * SMB source configuration (copy to config.smb.local.php — not committed).
+ *
+ * pdffinder is read-only on SMB shares: it lists and downloads PDFs only.
+ * Indexes are stored locally under storage/ — never on the remote share.
+ */
+
+declare(strict_types=1);
+
+$SMB_SOURCES = [
+    [
+        // Unique slug (letters, numbers, underscore, hyphen) — used in URLs and index filenames.
+        'id' => 'westmount',
+        'enabled' => false,
+        'label' => 'WESTMOUNT SMB',
+        'host' => '192.168.1.100',
+        'share' => 'WESTMOUNT',
+        'username' => 'dockerreader',
+        'password' => 'CHANGE_ME',
+        // Optional: only index PDFs under this folder on the share (no leading/trailing slash).
+        'subdirectory' => '',
+        // Optional override; default is storage/smb_index_{id}.json
+        // 'index_file' => __DIR__ . '/storage/smb_index_westmount.json',
+    ],
+    // Add more sources as needed:
+    // [
+    //     'id' => 'archive',
+    //     'enabled' => true,
+    //     'label' => 'Archive NAS',
+    //     'host' => '10.0.0.50',
+    //     'share' => 'PDFArchive',
+    //     'username' => 'reader',
+    //     'password' => 'secret',
+    //     'subdirectory' => 'clinic/outgoing',
+    // ],
+];
