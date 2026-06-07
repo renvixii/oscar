@@ -61,13 +61,7 @@ pdf_finder_header('Search Results', 'search');
         <p class="meta"><?= (int) $indexedCount ?> PDF<?= $indexedCount === 1 ? '' : 's' ?> in local PDF Finder index</p>
     <?php endif; ?>
 
-    <?php if ($oscarEnabled): ?>
-        <p class="meta">OSCAR integration: <strong>enabled</strong> (read-only database and OscarDocument search).</p>
-    <?php endif; ?>
-
-    <?php if ($smbEnabled): ?>
-        <p class="meta">SMB integration: <strong>enabled</strong> (read-only NAS search via local indexes).</p>
-    <?php endif; ?>
+    <?php pdf_finder_render_integration_status(); ?>
 
     <form class="search-form search-form--stacked" action="search.php" method="get" role="search">
         <input

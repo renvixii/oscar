@@ -53,13 +53,7 @@ pdf_finder_header('Search', 'search');
         <p class="meta"><?= (int) $indexedCount ?> PDF<?= $indexedCount === 1 ? '' : 's' ?> indexed (local folders)</p>
     <?php endif; ?>
 
-    <?php if ($oscarEnabled): ?>
-        <p class="meta">OSCAR integration: <strong>on</strong></p>
-    <?php endif; ?>
-
-    <?php if ($smbEnabled): ?>
-        <p class="meta">SMB integration: <strong>on</strong> — read-only NAS shares via local indexes.</p>
-    <?php endif; ?>
+    <?php pdf_finder_render_integration_status(); ?>
 
     <form class="search-form" action="search.php" method="get" role="search">
         <input

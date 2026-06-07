@@ -615,20 +615,79 @@ function pdf_finder_format_date(int $timestamp): string
 }
 
 /**
+ * OSCAR and SMB integration flags for UI.
+ *
+ * @return array{oscar: bool, smb: bool}
+ */
+function pdf_finder_integration_flags(): array
+{
+    $oscar = false;
+    $smb = false;
+    if (is_file(__DIR__ . '/oscar_config.php')) {
+        require_once __DIR__ . '/oscar_config.php';
+        $oscar = pdf_finder_oscar_enabled();
+    }
+    if (is_file(__DIR__ . '/smb_config.php')) {
+        require_once __DIR__ . '/smb_config.php';
+        $smb = pdf_finder_smb_enabled();
+    }
+
+    return ['oscar' => $oscar, 'smb' => $smb];
+}
+
+/**
+ * Combined OSCAR + SMB status line for page body.
+ */
+function pdf_finder_render_integration_status(string $class = 'meta integration-status'): void
+{
+    $flags = pdf_finder_integration_flags();
+    if (!$flags['oscar'] && !$flags['smb']) {
+        return;
+    }
+    ?>
+    <p class="<?= h($class) ?>">
+        <?php if ($flags['oscar'] && $flags['smb']): ?>
+            <strong>OSCAR</strong> and <strong>SMB</strong> integrations: <strong>on</strong>
+            <span class="integration-status-detail">— OSCAR live search; SMB read-only via local indexes.</span>
+        <?php elseif ($flags['oscar']): ?>
+            <strong>OSCAR</strong> integration: <strong>on</strong>
+            <span class="integration-status-detail">— read-only database and OscarDocument search.</span>
+        <?php else: ?>
+            <strong>SMB</strong> integration: <strong>on</strong>
+            <span class="integration-status-detail">— read-only NAS search via local indexes.</span>
+        <?php endif; ?>
+    </p>
+    <?php
+}
+
+/**
+ * Combined OSCAR + SMB badge for site header.
+ */
+function pdf_finder_render_integration_badges(): void
+{
+    $flags = pdf_finder_integration_flags();
+    if (!$flags['oscar'] && !$flags['smb']) {
+        return;
+    }
+
+    $parts = [];
+    if ($flags['oscar']) {
+        $parts[] = 'OSCAR';
+    }
+    if ($flags['smb']) {
+        $parts[] = 'SMB';
+    }
+    $title = implode(' and ', $parts) . ' integration' . (count($parts) === 1 ? '' : 's') . ' enabled';
+    ?>
+    <span class="badge badge-integrations" title="<?= h($title) ?>"><?= h(implode(' · ', $parts)) ?> on</span>
+    <?php
+}
+
+/**
  * Render page header (shared layout).
  */
 function pdf_finder_header(string $title, string $active = ''): void
 {
-    $oscarOn = false;
-    $smbOn = false;
-    if (is_file(__DIR__ . '/oscar_config.php')) {
-        require_once __DIR__ . '/oscar_config.php';
-        $oscarOn = pdf_finder_oscar_enabled();
-    }
-    if (is_file(__DIR__ . '/smb_config.php')) {
-        require_once __DIR__ . '/smb_config.php';
-        $smbOn = pdf_finder_smb_enabled();
-    }
     ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -646,12 +705,7 @@ function pdf_finder_header(string $title, string $active = ''): void
                 <a href="index.php" class="<?= $active === 'search' ? 'is-active' : '' ?>">Search</a>
                 <a href="rebuild-index.php" class="<?= $active === 'index' ? 'is-active' : '' ?>">Rebuild Index</a>
             </nav>
-            <?php if ($oscarOn): ?>
-                <span class="badge badge-oscar" title="OSCAR integration enabled">OSCAR on</span>
-            <?php endif; ?>
-            <?php if ($smbOn): ?>
-                <span class="badge badge-smb" title="SMB integration enabled">SMB on</span>
-            <?php endif; ?>
+            <?php pdf_finder_render_integration_badges(); ?>
         </div>
     </header>
     <main class="container main-content">
