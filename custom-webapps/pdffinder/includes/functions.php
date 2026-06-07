@@ -604,6 +604,93 @@ function pdf_finder_format_size(int $bytes): string
 }
 
 /**
+ * Rebuild local and all enabled SMB indexes (shared by manual and API rebuild).
+ *
+ * @return array{
+ *     ok: bool,
+ *     partial: bool,
+ *     message: string,
+ *     count: int,
+ *     built_at: string,
+ *     smb_results: list<array{label: string, ok: bool, message: string, count: int}>,
+ *     parts: list<string>
+ * }
+ */
+function pdf_finder_rebuild_all(): array
+{
+    require_once __DIR__ . '/smb_config.php';
+    require_once __DIR__ . '/smb.php';
+
+    $parts = [];
+    $anySuccess = false;
+    $anyError = false;
+    $count = 0;
+    $builtAt = '';
+    $smbResults = [];
+
+    $directories = pdf_finder_directories();
+    if ($directories === []) {
+        $parts[] = 'Local: skipped (no folders in config.php).';
+        $anyError = true;
+    } else {
+        $files = pdf_finder_build_index();
+        if (pdf_finder_save_index($files)) {
+            $count = count($files);
+            $builtAt = date('Y-m-d H:i:s');
+            $parts[] = 'Local: ' . $count . ' PDF(s) indexed.';
+            $anySuccess = true;
+        } else {
+            $parts[] = 'Local: failed to write storage/pdf_index.json.';
+            $anyError = true;
+        }
+    }
+
+    if (!pdf_finder_smbclient_available()) {
+        $parts[] = 'SMB: skipped (smbclient not installed).';
+    } elseif (!pdf_finder_smb_enabled()) {
+        $parts[] = 'SMB: skipped (no enabled sources).';
+    } else {
+        $ok = 0;
+        foreach (pdf_finder_smb_enabled_sources() as $source) {
+            $result = pdf_finder_smb_build_index($source);
+            $smbResults[] = [
+                'label' => $source['label'],
+                'ok' => $result['ok'],
+                'message' => $result['message'],
+                'count' => count($result['files']),
+            ];
+            if ($result['ok']) {
+                $ok++;
+            }
+        }
+        $total = count($smbResults);
+        if ($total === 0) {
+            $parts[] = 'SMB: skipped (no enabled sources).';
+        } elseif ($ok === $total) {
+            $parts[] = 'SMB: ' . $ok . ' of ' . $total . ' source(s) OK.';
+            $anySuccess = true;
+        } elseif ($ok > 0) {
+            $parts[] = 'SMB: ' . $ok . ' of ' . $total . ' source(s) OK (some failed).';
+            $anySuccess = true;
+            $anyError = true;
+        } else {
+            $parts[] = 'SMB: all ' . $total . ' source(s) failed.';
+            $anyError = true;
+        }
+    }
+
+    return [
+        'ok' => $anySuccess,
+        'partial' => $anySuccess && $anyError,
+        'message' => 'Rebuild all finished. ' . implode(' ', $parts),
+        'count' => $count,
+        'built_at' => $builtAt,
+        'smb_results' => $smbResults,
+        'parts' => $parts,
+    ];
+}
+
+/**
  * Format Unix timestamp for display.
  */
 function pdf_finder_format_date(int $timestamp): string
@@ -714,8 +801,10 @@ function pdf_finder_header(string $title, string $active = ''): void
 
 /**
  * Render page footer.
+ *
+ * @param ''|'app'|'settings' $dailyRebuildContext Load daily-rebuild.js with context.
  */
-function pdf_finder_footer(): void
+function pdf_finder_footer(string $dailyRebuildContext = ''): void
 {
     ?>
     </main>
@@ -724,6 +813,9 @@ function pdf_finder_footer(): void
             <p>PDF Finder — local PDF search by file name</p>
         </div>
     </footer>
+    <?php if ($dailyRebuildContext !== ''): ?>
+    <script src="assets/daily-rebuild.js" defer data-context="<?= h($dailyRebuildContext) ?>"></script>
+    <?php endif; ?>
 </body>
 </html>
     <?php

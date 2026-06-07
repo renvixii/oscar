@@ -65,64 +65,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $messageType = $ok > 0 ? 'success' : 'error';
         }
     } elseif ($action === 'rebuild_all') {
-        $parts = [];
-        $anySuccess = false;
-        $anyError = false;
-
-        $directories = pdf_finder_directories();
-        if ($directories === []) {
-            $parts[] = 'Local: skipped (no folders in config.php).';
-            $anyError = true;
-        } else {
-            $files = pdf_finder_build_index();
-            if (pdf_finder_save_index($files)) {
-                $count = count($files);
-                $builtAt = date('Y-m-d H:i:s');
-                $parts[] = 'Local: ' . $count . ' PDF(s) indexed.';
-                $anySuccess = true;
-            } else {
-                $parts[] = 'Local: failed to write storage/pdf_index.json.';
-                $anyError = true;
-            }
-        }
-
-        if (!pdf_finder_smbclient_available()) {
-            $parts[] = 'SMB: skipped (smbclient not installed).';
-        } elseif (!pdf_finder_smb_enabled()) {
-            $parts[] = 'SMB: skipped (no enabled sources).';
-        } else {
-            $ok = 0;
-            foreach (pdf_finder_smb_enabled_sources() as $source) {
-                $result = pdf_finder_smb_build_index($source);
-                $smbResults[] = [
-                    'label' => $source['label'],
-                    'ok' => $result['ok'],
-                    'message' => $result['message'],
-                    'count' => count($result['files']),
-                ];
-                if ($result['ok']) {
-                    $ok++;
-                }
-            }
-            $total = count($smbResults);
-            if ($total === 0) {
-                $parts[] = 'SMB: skipped (no enabled sources).';
-            } elseif ($ok === $total) {
-                $parts[] = 'SMB: ' . $ok . ' of ' . $total . ' source(s) OK.';
-                $anySuccess = true;
-            } elseif ($ok > 0) {
-                $parts[] = 'SMB: ' . $ok . ' of ' . $total . ' source(s) OK (some failed).';
-                $anySuccess = true;
-                $anyError = true;
-            } else {
-                $parts[] = 'SMB: all ' . $total . ' source(s) failed.';
-                $anyError = true;
-            }
-        }
-
-        $message = 'Rebuild all finished. ' . implode(' ', $parts);
-        $messageType = $anySuccess ? ($anyError ? 'error' : 'success') : 'error';
-        if ($anySuccess && $anyError) {
+        $result = pdf_finder_rebuild_all();
+        $count = $result['count'];
+        $builtAt = $result['built_at'];
+        $smbResults = $result['smb_results'];
+        $message = $result['message'];
+        $messageType = $result['ok'] ? 'success' : 'error';
+        if ($result['partial']) {
             $messageType = 'success';
         }
     } elseif (str_starts_with($action, 'rebuild_smb:')) {
@@ -322,9 +271,41 @@ pdf_finder_header('Rebuild Index', 'index');
             SMB shares are read-only — indexes are saved under <code>storage/</code> only.
         </p>
     </form>
+
+    <div class="daily-rebuild-settings" id="daily-rebuild-settings">
+        <h4 class="daily-rebuild-settings-title">Daily rebuild</h4>
+        <p class="meta daily-rebuild-settings-intro">
+            Runs once on your first visit each day. Stored in this browser only.
+        </p>
+        <fieldset class="radio-group daily-rebuild-radio-group">
+            <legend class="visually-hidden">Daily rebuild mode</legend>
+            <label class="radio-option">
+                <input type="radio" name="daily_rebuild_mode" value="disabled">
+                <span class="radio-option-body">
+                    <span class="radio-option-label">Disabled</span>
+                    <span class="radio-option-desc">Manual rebuild only — no automatic or prompted rebuilds.</span>
+                </span>
+            </label>
+            <label class="radio-option">
+                <input type="radio" name="daily_rebuild_mode" value="silent">
+                <span class="radio-option-body">
+                    <span class="radio-option-label">Silent auto-rebuild</span>
+                    <span class="radio-option-desc">Rebuilds in the background on first open each day without interrupting you.</span>
+                </span>
+            </label>
+            <label class="radio-option">
+                <input type="radio" name="daily_rebuild_mode" value="reminder">
+                <span class="radio-option-body">
+                    <span class="radio-option-label">Smart reminder</span>
+                    <span class="radio-option-desc">Shows a subtle banner on first visit — choose Rebuild or Dismiss.</span>
+                </span>
+            </label>
+        </fieldset>
+        <p class="meta" id="daily-rebuild-settings-status"></p>
+    </div>
 </div>
 
 <p style="text-align: center;"><a href="index.php">Go to Search</a></p>
 
 <?php
-pdf_finder_footer();
+pdf_finder_footer('settings');

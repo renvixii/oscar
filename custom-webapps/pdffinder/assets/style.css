@@ -211,6 +211,231 @@ a:hover {
     margin-right: auto;
 }
 
+.daily-rebuild-settings {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #e5e7eb;
+    text-align: left;
+    max-width: 36rem;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.daily-rebuild-settings-title {
+    margin: 0 0 0.35rem;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.daily-rebuild-settings-intro {
+    margin: 0 0 1rem;
+}
+
+.daily-rebuild-radio-group {
+    border: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.radio-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    padding: 0.75rem 0.85rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f9fafb;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.radio-option:hover {
+    border-color: #cbd5e1;
+    background: #f3f4f6;
+}
+
+.radio-option:has(input:checked) {
+    border-color: #2563eb;
+    background: #eff6ff;
+}
+
+.radio-option input {
+    margin-top: 0.2rem;
+    flex-shrink: 0;
+}
+
+.radio-option-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.radio-option-label {
+    font-weight: 600;
+    color: #111827;
+}
+
+.radio-option-desc {
+    font-size: 0.875rem;
+    color: #6b7280;
+    line-height: 1.4;
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+#daily-rebuild-root {
+    position: fixed;
+    z-index: 1000;
+    pointer-events: none;
+    inset: 0;
+}
+
+#daily-rebuild-root > * {
+    pointer-events: auto;
+}
+
+.daily-rebuild-reminder {
+    position: fixed;
+    left: 50%;
+    bottom: 1.25rem;
+    transform: translateX(-50%);
+    width: min(560px, calc(100vw - 2rem));
+    animation: daily-rebuild-slide-up 0.25s ease;
+}
+
+.daily-rebuild-reminder-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    padding: 0.85rem 1rem;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
+}
+
+.daily-rebuild-reminder-text {
+    margin: 0;
+    flex: 1 1 12rem;
+    font-size: 0.95rem;
+    color: #374151;
+}
+
+.daily-rebuild-reminder-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.daily-rebuild-progress {
+    position: fixed;
+    top: 4.5rem;
+    right: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.85rem;
+    background: #1f2937;
+    color: #f9fafb;
+    font-size: 0.85rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: daily-rebuild-slide-up 0.2s ease;
+}
+
+.daily-rebuild-progress-spinner {
+    width: 0.85rem;
+    height: 0.85rem;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: daily-rebuild-spin 0.7s linear infinite;
+}
+
+.daily-rebuild-toast {
+    position: fixed;
+    top: 4.5rem;
+    right: 1rem;
+    max-width: min(420px, calc(100vw - 2rem));
+    padding: 0.65rem 0.9rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    animation: daily-rebuild-slide-up 0.2s ease;
+}
+
+.daily-rebuild-toast--success {
+    background: #ecfdf5;
+    color: #065f46;
+    border: 1px solid #6ee7b7;
+}
+
+.daily-rebuild-toast--warning {
+    background: #fffbeb;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+}
+
+.daily-rebuild-toast--error {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}
+
+.daily-rebuild-toast--info {
+    background: #eff6ff;
+    color: #1e40af;
+    border: 1px solid #93c5fd;
+}
+
+@keyframes daily-rebuild-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes daily-rebuild-slide-up {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(0.75rem);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+.daily-rebuild-progress,
+.daily-rebuild-toast {
+    animation-name: daily-rebuild-fade-in;
+}
+
+@keyframes daily-rebuild-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(-0.35rem);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 .rebuild-section {
     border: 1px solid #e5e7eb;
     border-radius: 8px;

@@ -72,4 +72,4 @@ pdf_finder_header('Search', 'search');
 </div>
 
 <?php
-pdf_finder_footer();
+pdf_finder_footer('app');

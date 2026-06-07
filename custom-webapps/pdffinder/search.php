@@ -175,4 +175,4 @@ pdf_finder_header('Search Results', 'search');
 <p><a href="index.php">&larr; Back to home</a></p>
 
 <?php
-pdf_finder_footer();
+pdf_finder_footer('app');
