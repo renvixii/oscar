@@ -18,7 +18,7 @@ $SMB_SOURCES = [
         'share' => 'WESTMOUNT',
         'username' => 'dockerreader',
         'password' => 'CHANGE_ME',
-        // Optional: only index PDFs under this folder on the share (no leading/trailing slash).
+        // Optional: folder INSIDE the share (e.g. 'UNIT 1 - 2026-06-01 1434h'). NOT the share name again.
         'subdirectory' => '',
         // Optional override; default is storage/smb_index_{id}.json
         // 'index_file' => __DIR__ . '/storage/smb_index_westmount.json',
