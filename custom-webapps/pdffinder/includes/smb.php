@@ -127,6 +127,44 @@ function pdf_finder_smb_parse_share_list(string $output): array
 }
 
 /**
+ * Leading whitespace depth in smbclient recursive ls (≈2 spaces per level).
+ */
+function pdf_finder_smb_line_indent_depth(string $line): int
+{
+    if (!preg_match('/^(\s+)/', $line, $m)) {
+        return 0;
+    }
+    if (str_contains($m[1], "\t")) {
+        return substr_count($m[1], "\t");
+    }
+
+    return (int) floor(strlen($m[1]) / 2);
+}
+
+/**
+ * Build full share-relative path from a basename and parent folder stack.
+ *
+ * @param list<string> $dirStack
+ */
+function pdf_finder_smb_full_remote_path(string $path, array $dirStack): string
+{
+    $path = pdf_finder_smb_normalize_ls_path($path);
+    if ($path === '') {
+        return '';
+    }
+
+    if (str_contains($path, '/')) {
+        return $path;
+    }
+
+    if ($dirStack === []) {
+        return $path;
+    }
+
+    return implode('/', $dirStack) . '/' . $path;
+}
+
+/**
  * Parse one smbclient ls line (grepable -g, compact -g, or human-readable).
  *
  * @return array{path: string, is_dir: bool, size: int}|null
@@ -170,10 +208,9 @@ function pdf_finder_smb_parse_ls_line(string $line): ?array
     }
 
     // Compact / human smbclient ls: name  D|A|...  size  Weekday Month day time year
-    // e.g. UNIT 1 - 2026-06-01 1434h D 0 Sun May  4 07:03:16 2026
-    // e.g. . D 0 Sun Mar  8 07:03:16 2026
+    // Non-greedy name so spaces inside filenames are preserved.
     if (preg_match(
-        '/^(.+)\s+([DAHSR]+)\s+(\d+)\s+[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4}\s*$/',
+        '/^(.+?)\s+([DAHSR]+)\s+(\d+)\s+[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4}\s*$/',
         $line,
         $m
     )) {
@@ -181,25 +218,28 @@ function pdf_finder_smb_parse_ls_line(string $line): ?array
         if ($name === '.' || $name === '..') {
             return null;
         }
-        $path = pdf_finder_smb_normalize_ls_path($name);
-        return [
-            'path' => $path,
-            'is_dir' => str_contains($m[2], 'D'),
-            'size' => (int) $m[3],
-        ];
-    }
 
-    // Recursive path prefix: \folder\sub\file.pdf A 1234 date...
-    if (preg_match(
-        '/^(.+\.pdf)\s+([DAHSR]+)\s+(\d+)\s+[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4}\s*$/i',
-        $line,
-        $m
-    )) {
-        return [
-            'path' => pdf_finder_smb_normalize_ls_path($m[1]),
-            'is_dir' => false,
-            'size' => (int) $m[3],
-        ];
+        $flags = $m[2];
+        $size = (int) $m[3];
+        $path = pdf_finder_smb_normalize_ls_path($name);
+
+        if (str_contains($flags, 'D')) {
+            return [
+                'path' => rtrim($path, '/'),
+                'is_dir' => true,
+                'size' => 0,
+            ];
+        }
+
+        if (preg_match('/\.pdf$/i', $name)) {
+            return [
+                'path' => $path,
+                'is_dir' => false,
+                'size' => $size,
+            ];
+        }
+
+        return null;
     }
 
     return null;
@@ -837,16 +877,43 @@ function pdf_finder_smb_parse_listing(string $output): array
 {
     $files = [];
     $seen = [];
+    $dirStack = [];
 
-    foreach (explode("\n", $output) as $line) {
+    foreach (explode("\n", $output) as $rawLine) {
+        $depth = pdf_finder_smb_line_indent_depth($rawLine);
+        $line = trim($rawLine);
+        if ($line === '') {
+            continue;
+        }
+
         $entry = pdf_finder_smb_parse_ls_line($line);
-        if ($entry === null || $entry['is_dir']) {
+        if ($entry === null) {
             continue;
         }
-        $remotePath = $entry['path'];
-        if (!preg_match('/\.pdf$/i', $remotePath)) {
+
+        if ($entry['is_dir']) {
+            $dirStack = array_slice($dirStack, 0, $depth);
+            $dirName = rtrim($entry['path'], '/');
+            if ($dirName !== '' && $dirName !== '.' && $dirName !== '..') {
+                $dirStack[] = basename(str_replace('\\', '/', $dirName));
+            }
             continue;
         }
+
+        if (!preg_match('/\.pdf$/i', $entry['path'])) {
+            continue;
+        }
+
+        if (str_contains($entry['path'], '/') || str_contains($entry['path'], '\\')) {
+            $parentStack = [];
+        } elseif ($depth > 0) {
+            $parentStack = array_slice($dirStack, 0, $depth);
+        } else {
+            $parentStack = $dirStack;
+        }
+
+        $remotePath = pdf_finder_smb_full_remote_path($entry['path'], $parentStack);
+
         if (!pdf_finder_smb_validate_remote_path($remotePath)) {
             continue;
         }
@@ -856,7 +923,7 @@ function pdf_finder_smb_parse_listing(string $output): array
         $seen[$remotePath] = true;
 
         $modified = 0;
-        if (preg_match('/\s([A-Za-z]{3}\s+[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s*$/', trim($line), $dm)) {
+        if (preg_match('/\s([A-Za-z]{3}\s+[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s*$/', $line, $dm)) {
             $ts = strtotime($dm[1]);
             if ($ts !== false) {
                 $modified = (int) $ts;
