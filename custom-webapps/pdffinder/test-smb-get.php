@@ -38,7 +38,7 @@ echo "Remote path (indexed): {$remote}\n";
 echo "Remote path (normalized): " . pdf_finder_smb_normalize_ls_path($remote) . "\n";
 echo "Indexed size: " . (int) ($entry['size'] ?? 0) . " bytes\n";
 if (pdf_finder_smb_path_looks_corrupt($remote)) {
-    echo "PATH WARNING: indexed path looks corrupt — rebuild SMB index from rebuild-index.php.\n";
+    echo "PATH WARNING: indexed path may be from an old index — rebuild SMB index from rebuild-index.php.\n";
 }
 echo "\n";
 

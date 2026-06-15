@@ -221,9 +221,9 @@ function pdf_finder_smb_parse_ls_line(string $line): ?array
     }
 
     // Compact / human smbclient ls: name  D|A|...  size  Weekday Month day time year
-    // Non-greedy name so spaces inside filenames are preserved.
+    // Greedy name match anchored to the date suffix at end of line.
     if (preg_match(
-        '/^(.+?)\s+([DAHSR]+)\s+(\d+)\s+[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4}\s*$/',
+        '/^(.+)\s+([DAHSR]+)\s+(\d+)\s+[A-Za-z]{3}\s+[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4}\s*$/',
         $line,
         $m
     )) {
@@ -261,6 +261,14 @@ function pdf_finder_smb_parse_ls_line(string $line): ?array
 function pdf_finder_smb_normalize_smb_name(string $name): string
 {
     $name = trim($name);
+
+    // smbclient compact ls wraps leading-space names in "(" (not on the NAS).
+    if (str_starts_with($name, '(')) {
+        $name = substr($name, 1);
+    }
+    if (str_starts_with($name, ')')) {
+        $name = ltrim(substr($name, 1));
+    }
 
     // smbclient human/compact ls prefixes “special” names with a single quote (not on the NAS).
     if (str_starts_with($name, "'")) {
@@ -304,6 +312,25 @@ function pdf_finder_smb_get_basename_variants(string $basename): array
 
     $push($basename);
     $push(pdf_finder_smb_normalize_smb_name($basename));
+
+    // smbclient display "(" prefix for leading-space names.
+    if (str_starts_with($basename, '(')) {
+        $push(ltrim(substr($basename, 1)));
+    } else {
+        $push('(' . ltrim($basename, ' '));
+        $push('(' . $basename);
+    }
+    if (str_starts_with($basename, ')')) {
+        $push(ltrim(substr($basename, 1)));
+    }
+
+    // Some indexed names omit " - " before UNIT; NAS may use either form.
+    if (preg_match('/(\d{4,9})UNIT\s+(\d+)/i', $basename, $unitFix)) {
+        $push(preg_replace('/(\d{4,9})UNIT\s+(\d+)/i', '$1 - UNIT $2', $basename));
+    }
+    if (preg_match('/(\d{4,9})\s*jUNIT\s+(\d+)/i', $basename, $unitFix)) {
+        $push(preg_replace('/(\d{4,9})\s*jUNIT\s+(\d+)/i', '$1 - UNIT $2', $basename));
+    }
 
     return $variants;
 }
@@ -720,37 +747,11 @@ function pdf_finder_smb_verify_pdf_file(string $path): array
 function pdf_finder_smb_list_pdfs_in_remote_folder(array $source, string $folder): array
 {
     $folder = pdf_finder_smb_normalize_ls_path($folder);
-    $cmd = $folder === ''
-        ? 'ls'
-        : 'cd "' . pdf_finder_smb_quote_remote_path($folder) . '"; ls';
-
-    $result = pdf_finder_smb_run($source, $cmd, true);
-    if (!$result['ok']) {
-        return [];
-    }
-
-    $listed = pdf_finder_smb_parse_grepable_pdfs($result['output']);
-    if ($listed !== []) {
-        $files = [];
-        foreach ($listed as $row) {
-            $files[] = [
-                'path' => pdf_finder_smb_normalize_smb_name(basename($row['remote_path'])),
-                'size' => $row['size'],
-            ];
-        }
-
-        return $files;
-    }
-
     $files = [];
-    foreach (explode("\n", $result['output']) as $line) {
-        $entry = pdf_finder_smb_parse_ls_line(trim($line));
-        if ($entry === null || $entry['is_dir'] || !preg_match('/\.pdf$/i', $entry['path'])) {
-            continue;
-        }
+    foreach (pdf_finder_smb_list_pdfs_in_directory($source, $folder) as $row) {
         $files[] = [
-            'path' => pdf_finder_smb_normalize_smb_name(basename($entry['path'])),
-            'size' => $entry['size'],
+            'path' => $row['filename'],
+            'size' => $row['size'],
         ];
     }
 
@@ -1054,20 +1055,143 @@ function pdf_finder_smb_list_command(array $source): string
 }
 
 /**
- * Detect paths produced by the compact ls fallback (not real NAS names).
+ * Detect obvious path merge artifacts (for index health warnings only).
  */
 function pdf_finder_smb_path_looks_corrupt(string $path): bool
 {
-    // e.g. 382UNIT 1 instead of 382 - UNIT 1
-    if (preg_match('/\dUNIT\s+\d/i', $path)) {
-        return true;
-    }
     // e.g. folder/,file.pdf from mis-merged quoted pairs
-    if (preg_match('#/[,(\']#', $path)) {
+    if (preg_match('#/,\s*[^/]#', $path)) {
         return true;
     }
 
     return false;
+}
+
+/**
+ * Folders skipped during per-folder index builds.
+ */
+function pdf_finder_smb_skip_index_folder(string $name): bool
+{
+    $name = trim($name);
+    if ($name === '' || $name === '.' || $name === '..') {
+        return true;
+    }
+    if (str_starts_with($name, '#')) {
+        return true;
+    }
+    if (str_starts_with($name, '.')) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * Parse smbclient ls output for PDFs inside one known folder (no recurse dir stack).
+ *
+ * @return list<array{remote_path: string, filename: string, size: int, modified: int}>
+ */
+function pdf_finder_smb_parse_directory_listing(string $output, string $folder): array
+{
+    $folder = pdf_finder_smb_normalize_ls_path($folder);
+    $files = [];
+    $seen = [];
+
+    $add = static function (string $basename, int $size, int $modified) use ($folder, &$files, &$seen): void {
+        $basename = pdf_finder_smb_normalize_smb_name($basename);
+        if (!preg_match('/\.pdf$/i', $basename)) {
+            return;
+        }
+
+        $remotePath = $folder !== '' ? $folder . '/' . $basename : $basename;
+        $remotePath = pdf_finder_smb_normalize_ls_path($remotePath);
+        if (!pdf_finder_smb_validate_remote_path($remotePath)) {
+            return;
+        }
+        if (isset($seen[$remotePath])) {
+            return;
+        }
+        $seen[$remotePath] = true;
+
+        $files[] = [
+            'remote_path' => $remotePath,
+            'filename' => $basename,
+            'size' => $size,
+            'modified' => $modified,
+        ];
+    };
+
+    foreach (pdf_finder_smb_parse_grepable_pdfs($output) as $row) {
+        $rawPath = pdf_finder_smb_normalize_ls_path($row['remote_path']);
+        if (str_contains($rawPath, '/')) {
+            $basename = basename($rawPath);
+            $remotePath = $rawPath;
+            if (!pdf_finder_smb_validate_remote_path($remotePath)) {
+                continue;
+            }
+            if (isset($seen[$remotePath])) {
+                continue;
+            }
+            $seen[$remotePath] = true;
+            $files[] = [
+                'remote_path' => $remotePath,
+                'filename' => pdf_finder_smb_normalize_smb_name($basename),
+                'size' => $row['size'],
+                'modified' => $row['modified'],
+            ];
+            continue;
+        }
+
+        $add($rawPath, $row['size'], $row['modified']);
+    }
+
+    if ($files !== []) {
+        return $files;
+    }
+
+    foreach (explode("\n", $output) as $line) {
+        $line = trim($line);
+        if ($line === '') {
+            continue;
+        }
+
+        $entry = pdf_finder_smb_parse_ls_line($line);
+        if ($entry === null || $entry['is_dir'] || !preg_match('/\.pdf$/i', $entry['path'])) {
+            continue;
+        }
+
+        $modified = 0;
+        if (preg_match('/\s([A-Za-z]{3}\s+[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s*$/', $line, $dm)) {
+            $ts = strtotime($dm[1]);
+            if ($ts !== false) {
+                $modified = (int) $ts;
+            }
+        }
+
+        $add(basename($entry['path']), $entry['size'], $modified);
+    }
+
+    return $files;
+}
+
+/**
+ * List PDFs in one share-relative folder via smbclient ls (non-recursive).
+ *
+ * @return list<array{remote_path: string, filename: string, size: int, modified: int}>
+ */
+function pdf_finder_smb_list_pdfs_in_directory(array $source, string $folder): array
+{
+    $folder = pdf_finder_smb_normalize_ls_path($folder);
+    $cmd = $folder === ''
+        ? 'ls'
+        : 'cd "' . pdf_finder_smb_quote_remote_path($folder) . '"; ls';
+
+    $result = pdf_finder_smb_run($source, $cmd, true);
+    if (!$result['ok']) {
+        return [];
+    }
+
+    return pdf_finder_smb_parse_directory_listing($result['output'], $folder);
 }
 
 /**
@@ -1105,9 +1229,6 @@ function pdf_finder_smb_parse_grepable_line(string $line): ?array
         return null;
     }
     if (!pdf_finder_smb_validate_remote_path($remotePath)) {
-        return null;
-    }
-    if (pdf_finder_smb_path_looks_corrupt($remotePath)) {
         return null;
     }
 
@@ -1198,10 +1319,6 @@ function pdf_finder_smb_parse_listing_compact(string $output): array
         }
 
         $remotePath = pdf_finder_smb_full_remote_path($entry['path'], $parentStack);
-
-        if (pdf_finder_smb_path_looks_corrupt($remotePath)) {
-            continue;
-        }
 
         if (!pdf_finder_smb_validate_remote_path($remotePath)) {
             continue;
@@ -1307,6 +1424,10 @@ function pdf_finder_smb_index_first_valid_entry(array $index): ?array
         if ($path === '' || pdf_finder_smb_path_looks_corrupt($path)) {
             continue;
         }
+        $basename = basename(str_replace('\\', '/', $path));
+        if (str_starts_with($basename, '(') || str_starts_with($basename, ')')) {
+            continue;
+        }
 
         return $file;
     }
@@ -1324,9 +1445,6 @@ function pdf_finder_smb_entries_from_listing(array $source, array $listed): arra
     $seen = [];
     foreach ($listed as $row) {
         $remotePath = $row['remote_path'];
-        if (pdf_finder_smb_path_looks_corrupt($remotePath)) {
-            continue;
-        }
         if (isset($seen[$remotePath])) {
             continue;
         }
@@ -1440,21 +1558,48 @@ function pdf_finder_smb_build_index(array $source): array
         return ['ok' => false, 'files' => [], 'message' => 'smbclient is not installed.'];
     }
 
-    $result = pdf_finder_smb_run($source, pdf_finder_smb_list_command($source));
-    if (!$result['ok']) {
-        $msg = trim($result['output']);
-        if ($msg === '') {
-            $msg = 'SMB listing failed.';
+    @set_time_limit(0);
+
+    $subdir = pdf_finder_smb_normalize_subdir($source['subdirectory'] ?? '');
+    $listed = [];
+
+    if ($subdir !== '') {
+        $listed = pdf_finder_smb_list_pdfs_in_directory($source, $subdir);
+    } else {
+        $root = pdf_finder_smb_list_share_directory($source, '');
+        if (!$root['ok']) {
+            $msg = trim($root['message']);
+            if ($msg === '') {
+                $msg = 'SMB share listing failed.';
+            }
+            return ['ok' => false, 'files' => [], 'message' => $msg];
         }
-        return ['ok' => false, 'files' => [], 'message' => $msg];
+
+        $folderCount = 0;
+        foreach ($root['directories'] as $folder) {
+            if (pdf_finder_smb_skip_index_folder($folder)) {
+                continue;
+            }
+            $folderCount++;
+            foreach (pdf_finder_smb_list_pdfs_in_directory($source, $folder) as $row) {
+                $listed[] = $row;
+            }
+        }
+
+        if ($listed === [] && $folderCount === 0) {
+            return [
+                'ok' => false,
+                'files' => [],
+                'message' => 'No indexable folders found on the share root.',
+            ];
+        }
     }
 
-    $listed = pdf_finder_smb_parse_listing($result['output'], false);
     if ($listed === []) {
         return [
             'ok' => false,
             'files' => [],
-            'message' => 'SMB listing returned no PDFs via grepable (-g) parse. Re-run test-smb-connection.php; do not edit the JSON index by hand.',
+            'message' => 'No PDFs found on the SMB share.',
         ];
     }
 

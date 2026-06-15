@@ -18,6 +18,7 @@ $smbResults = [];
 $lastAction = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    @set_time_limit(0);
     $action = isset($_POST['action']) ? trim((string) $_POST['action']) : 'rebuild_local';
     $lastAction = $action;
 

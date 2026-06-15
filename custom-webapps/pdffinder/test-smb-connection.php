@@ -157,7 +157,8 @@ foreach (pdf_finder_smb_host_groups() as $group) {
 }
 
 echo "=== PER-SOURCE RECURSIVE PDF TEST ===\n";
-echo "Runs recurse ON; ls (same as index rebuild). Shows count + sample of " . PDF_FINDER_SMB_TEST_SAMPLE_LIMIT . " paths.\n\n";
+echo "Quick recursive scan (recurse ON; ls). Index rebuild uses per-folder ls instead for correct paths.\n";
+echo "Shows count + sample of " . PDF_FINDER_SMB_TEST_SAMPLE_LIMIT . " paths.\n\n";
 
 foreach ($sources as $source) {
     echo str_repeat('-', 60) . "\n";
@@ -177,7 +178,7 @@ foreach ($sources as $source) {
         }
         $corrupt = pdf_finder_smb_index_corrupt_count($index);
         if ($corrupt > 0) {
-            echo "\nINDEX WARNING: {$corrupt} path(s) look corrupt (old compact-parser index).";
+            echo "\nINDEX WARNING: {$corrupt} path(s) look corrupt (comma-merge artifacts).";
             echo ' Rebuild from rebuild-index.php — editing the JSON file will not fix paths.';
         }
         echo "\n";
