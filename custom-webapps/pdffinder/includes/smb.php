@@ -456,7 +456,7 @@ function pdf_finder_smb_run(array $source, string $smbCommand, bool $grepable = 
 
     $target = pdf_finder_smb_target($source);
     $auth = $source['username'] . '%' . $source['password'];
-    $grepFlag = $grepable ? ' -g' : ' -d 0';
+    $grepFlag = $grepable ? ' -g' : '';
 
     $cmd = sprintf(
         '%s %s -U %s -m SMB3%s -c %s 2>&1',
@@ -493,6 +493,114 @@ function pdf_finder_smb_quote_local_path(string $path): string
 }
 
 /**
+ * smbclient get command variants (lcd temp dir, optional cd into indexed subdirectory).
+ *
+ * @return list<string>
+ */
+function pdf_finder_smb_get_command_attempts(array $source, string $remotePath, string $localBasename): array
+{
+    $tmpdir = rtrim(sys_get_temp_dir(), '/\\');
+    if ($tmpdir === '') {
+        $tmpdir = '/tmp';
+    }
+
+    $remote = ltrim(str_replace('\\', '/', $remotePath), '/');
+    $subdir = pdf_finder_smb_normalize_subdir((string) ($source['subdirectory'] ?? ''));
+    $attempts = [];
+
+    $add = static function (?string $cd, string $getPath) use (&$attempts, $tmpdir, $localBasename): void {
+        $parts = ['lcd "' . pdf_finder_smb_quote_local_path($tmpdir) . '"'];
+        if ($cd !== null && $cd !== '') {
+            $parts[] = 'cd "' . pdf_finder_smb_quote_remote_path($cd) . '"';
+        }
+        $parts[] = 'get "' . pdf_finder_smb_quote_remote_path($getPath) . '" "'
+            . pdf_finder_smb_quote_local_path($localBasename) . '"';
+        $attempts[] = implode('; ', $parts);
+    };
+
+    $add(null, $remote);
+    $remoteBs = str_replace('/', '\\', $remote);
+    if ($remoteBs !== $remote) {
+        $add(null, $remoteBs);
+    }
+
+    if ($subdir !== '') {
+        $prefix = $subdir . '/';
+        if (str_starts_with($remote, $prefix)) {
+            $relative = substr($remote, strlen($prefix));
+            $add($subdir, $relative);
+            $add(null, $remote);
+        } else {
+            $add($subdir, $remote);
+            if ($remoteBs !== $remote) {
+                $add($subdir, $remoteBs);
+            }
+        }
+    }
+
+    return array_values(array_unique($attempts));
+}
+
+/**
+ * Locate file smbclient wrote (sometimes lands in CWD instead of lcd target).
+ */
+function pdf_finder_smb_locate_downloaded_file(string $tmpdir, string $basename): ?string
+{
+    $cwd = getcwd();
+    if ($cwd === false) {
+        $cwd = '';
+    }
+
+    $candidates = [
+        $tmpdir . '/' . $basename,
+        $tmpdir . DIRECTORY_SEPARATOR . $basename,
+        $cwd !== '' ? $cwd . '/' . $basename : '',
+        '/var/www/html/' . $basename,
+    ];
+
+    foreach ($candidates as $path) {
+        if ($path !== '' && is_file($path)) {
+            return $path;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * @return array{ok: bool, message: string, raw_output: string}
+ */
+function pdf_finder_smb_verify_pdf_file(string $path): array
+{
+    if (!is_file($path)) {
+        return ['ok' => false, 'message' => 'SMB get did not create a local file.', 'raw_output' => ''];
+    }
+
+    $size = filesize($path);
+    if ($size === false || $size < 5) {
+        return ['ok' => false, 'message' => 'Downloaded file is empty or too small to be a PDF.', 'raw_output' => ''];
+    }
+
+    $handle = fopen($path, 'rb');
+    if ($handle === false) {
+        return ['ok' => false, 'message' => 'Could not read downloaded file.', 'raw_output' => ''];
+    }
+
+    $header = fread($handle, 8);
+    fclose($handle);
+
+    if ($header === false || !str_starts_with($header, '%PDF-')) {
+        return [
+            'ok' => false,
+            'message' => 'Downloaded data is not a PDF (smbclient may have returned an error message).',
+            'raw_output' => (string) file_get_contents($path, false, null, 0, 200),
+        ];
+    }
+
+    return ['ok' => true, 'message' => '', 'raw_output' => ''];
+}
+
+/**
  * Download one indexed PDF from SMB to a temp file (read-only get).
  *
  * @return array{ok: bool, path: string, message: string}
@@ -508,34 +616,77 @@ function pdf_finder_smb_download_to_temp(array $source, string $remotePath): arr
         return ['ok' => false, 'path' => '', 'message' => 'Temp directory is not writable.'];
     }
 
-    $localPath = $tmpdir . '/pdffinder_smb_' . bin2hex(random_bytes(16)) . '.pdf';
-    $getCmd = 'get "' . pdf_finder_smb_quote_remote_path($remotePath) . '" "'
-        . pdf_finder_smb_quote_local_path($localPath) . '"';
+    $localBasename = 'pdffinder_smb_' . bin2hex(random_bytes(8)) . '.pdf';
+    $expectedPath = rtrim($tmpdir, '/\\') . '/' . $localBasename;
+    $attempts = pdf_finder_smb_get_command_attempts($source, $remotePath, $localBasename);
+    $lastError = 'SMB get failed.';
+    $lastRaw = '';
 
-    $result = pdf_finder_smb_run($source, $getCmd, false);
+    foreach ($attempts as $getCmd) {
+        @unlink($expectedPath);
+        pdf_finder_smb_cleanup_stray_download($localBasename);
 
-    if (!$result['ok']) {
-        @unlink($localPath);
-        return ['ok' => false, 'path' => '', 'message' => $result['output']];
+        $result = pdf_finder_smb_run($source, $getCmd, false);
+        $lastRaw = $result['raw_output'] ?? $result['output'];
+
+        if (!$result['ok']) {
+            $lastError = $result['output'];
+            continue;
+        }
+
+        $found = pdf_finder_smb_locate_downloaded_file($tmpdir, $localBasename);
+        if ($found === null) {
+            $lastError = 'SMB get did not create a local file.';
+            continue;
+        }
+
+        $verify = pdf_finder_smb_verify_pdf_file($found);
+        if (!$verify['ok']) {
+            $lastError = $verify['message'];
+            if ($verify['raw_output'] !== '') {
+                $lastRaw = $verify['raw_output'];
+            }
+            @unlink($found);
+            continue;
+        }
+
+        if ($found !== $expectedPath) {
+            if (!@rename($found, $expectedPath)) {
+                if (!@copy($found, $expectedPath)) {
+                    @unlink($found);
+                    $lastError = 'Could not move downloaded PDF into temp directory.';
+                    continue;
+                }
+                @unlink($found);
+            }
+            $found = $expectedPath;
+        }
+
+        return ['ok' => true, 'path' => $found, 'message' => ''];
     }
 
-    if (!is_file($localPath)) {
-        return ['ok' => false, 'path' => '', 'message' => 'SMB get did not create a local file.'];
-    }
+    error_log('pdffinder SMB get failed for ' . $remotePath . ': ' . $lastError . ' | raw: ' . substr($lastRaw, 0, 500));
 
-    $size = filesize($localPath);
-    if ($size === false || $size < 5) {
-        @unlink($localPath);
-        return ['ok' => false, 'path' => '', 'message' => 'Downloaded file is empty or too small to be a PDF.'];
-    }
+    return ['ok' => false, 'path' => '', 'message' => $lastError];
+}
 
-    $header = file_get_contents($localPath, false, null, 0, 5);
-    if ($header !== '%PDF-') {
-        @unlink($localPath);
-        return ['ok' => false, 'path' => '', 'message' => 'Downloaded data is not a PDF (smbclient may have returned an error message).'];
+/**
+ * Remove a stray smbclient download from common web/CWD locations.
+ */
+function pdf_finder_smb_cleanup_stray_download(string $basename): void
+{
+    $tmpdir = sys_get_temp_dir();
+    $cwd = getcwd();
+    $paths = [
+        $tmpdir !== '' ? rtrim($tmpdir, '/\\') . '/' . $basename : '',
+        $cwd !== false ? $cwd . '/' . $basename : '',
+        '/var/www/html/' . $basename,
+    ];
+    foreach ($paths as $path) {
+        if ($path !== '' && is_file($path)) {
+            @unlink($path);
+        }
     }
-
-    return ['ok' => true, 'path' => $localPath, 'message' => ''];
 }
 
 /**
@@ -1261,12 +1412,15 @@ function pdf_finder_smb_stream_file(array $entry, bool $inline): void
     $remotePath = (string) $entry['remote_path'];
     $filename = basename(str_replace(["\r", "\n", '"'], '', (string) ($entry['filename'] ?? 'document.pdf')));
 
+    set_time_limit(300);
+
     $download = pdf_finder_smb_download_to_temp($source, $remotePath);
     if (!$download['ok']) {
-        http_response_code(502);
+        http_response_code(500);
         header('Content-Type: text/plain; charset=UTF-8');
         echo 'Could not download PDF from SMB: ' . $download['message'];
-        error_log('pdffinder SMB download failed: ' . $download['message']);
+        echo "\n\nTry test-smb-get.php?id=" . rawurlencode((string) ($entry['id'] ?? '')) . " for details.";
+        error_log('pdffinder SMB download failed for id ' . ($entry['id'] ?? '') . ': ' . $download['message']);
         exit;
     }
 

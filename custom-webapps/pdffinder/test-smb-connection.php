@@ -213,6 +213,22 @@ foreach ($sources as $source) {
     } elseif ($test['pdf_count'] === 0) {
         echo "No PDFs found in recursive scan.\n";
     }
+
+    if ($test['pdf_count'] > 0 && $index !== null && !empty($index['files'])) {
+        $sampleEntry = $index['files'][0];
+        $remote = (string) ($sampleEntry['remote_path'] ?? '');
+        if ($remote !== '') {
+            echo "\nDownload test (first indexed PDF): {$remote}\n";
+            $dl = pdf_finder_smb_download_to_temp($source, $remote);
+            if ($dl['ok']) {
+                $sz = filesize($dl['path']);
+                echo "GET OK — " . ($sz !== false ? $sz : '?') . " bytes written to temp\n";
+                @unlink($dl['path']);
+            } else {
+                echo "GET FAILED: " . $dl['message'] . "\n";
+            }
+        }
+    }
     echo "\n";
 }
 
