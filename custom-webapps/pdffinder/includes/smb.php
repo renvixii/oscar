@@ -245,10 +245,54 @@ function pdf_finder_smb_parse_ls_line(string $line): ?array
     return null;
 }
 
+function pdf_finder_smb_normalize_smb_name(string $name): string
+{
+    $name = trim($name);
+
+    // smbclient human/compact ls prefixes “special” names with a single quote (not on the NAS).
+    if (str_starts_with($name, "'")) {
+        $name = ltrim(substr($name, 1));
+    }
+    if (str_ends_with($name, "'") && substr_count($name, "'") === 1) {
+        $name = rtrim(substr($name, 0, -1));
+    }
+
+    return trim($name);
+}
+
 function pdf_finder_smb_normalize_ls_path(string $path): string
 {
     $path = str_replace('\\', '/', trim($path));
-    return ltrim($path, '/');
+    $path = ltrim($path, '/');
+    if ($path === '') {
+        return '';
+    }
+
+    $parts = explode('/', $path);
+    $parts = array_map('pdf_finder_smb_normalize_smb_name', $parts);
+
+    return implode('/', $parts);
+}
+
+/**
+ * Basename variants for smbclient get (display quotes vs real NAS name).
+ *
+ * @return list<string>
+ */
+function pdf_finder_smb_get_basename_variants(string $basename): array
+{
+    $variants = [];
+    $push = static function (string $value) use (&$variants): void {
+        $value = trim($value);
+        if ($value !== '' && !in_array($value, $variants, true)) {
+            $variants[] = $value;
+        }
+    };
+
+    $push($basename);
+    $push(pdf_finder_smb_normalize_smb_name($basename));
+
+    return $variants;
 }
 
 /**
@@ -533,7 +577,7 @@ function pdf_finder_smb_quote_local_path(string $path): string
 }
 
 /**
- * smbclient get command variants (lcd temp dir, optional cd into indexed subdirectory).
+ * smbclient get command variants (lcd temp dir, cd into folder, basename-only get).
  *
  * @return list<string>
  */
@@ -544,36 +588,51 @@ function pdf_finder_smb_get_command_attempts(array $source, string $remotePath, 
         $tmpdir = '/tmp';
     }
 
-    $remote = ltrim(str_replace('\\', '/', $remotePath), '/');
+    $remote = pdf_finder_smb_normalize_ls_path(ltrim(str_replace('\\', '/', $remotePath), '/'));
     $subdir = pdf_finder_smb_normalize_subdir((string) ($source['subdirectory'] ?? ''));
     $attempts = [];
 
     $add = static function (?string $cd, string $getPath) use (&$attempts, $tmpdir, $localBasename): void {
+        $getPath = pdf_finder_smb_normalize_ls_path($getPath);
+        if ($getPath === '') {
+            return;
+        }
         $parts = ['lcd "' . pdf_finder_smb_quote_local_path($tmpdir) . '"'];
         if ($cd !== null && $cd !== '') {
-            $parts[] = 'cd "' . pdf_finder_smb_quote_remote_path($cd) . '"';
+            $parts[] = 'cd "' . pdf_finder_smb_quote_remote_path(pdf_finder_smb_normalize_ls_path($cd)) . '"';
         }
         $parts[] = 'get "' . pdf_finder_smb_quote_remote_path($getPath) . '" "'
             . pdf_finder_smb_quote_local_path($localBasename) . '"';
         $attempts[] = implode('; ', $parts);
     };
 
-    $add(null, $remote);
-    $remoteBs = str_replace('/', '\\', $remote);
-    if ($remoteBs !== $remote) {
-        $add(null, $remoteBs);
+    $dir = dirname($remote);
+    $hasFolder = $dir !== '.' && $dir !== '';
+    $folder = $hasFolder ? $dir : '';
+    $basename = basename($remote);
+
+    foreach (pdf_finder_smb_get_basename_variants($basename) as $fileName) {
+        if ($hasFolder) {
+            $add($folder, $fileName);
+        }
+        $add(null, $hasFolder ? $folder . '/' . $fileName : $fileName);
     }
 
     if ($subdir !== '') {
         $prefix = $subdir . '/';
         if (str_starts_with($remote, $prefix)) {
             $relative = substr($remote, strlen($prefix));
-            $add($subdir, $relative);
-            $add(null, $remote);
+            $relDir = dirname($relative);
+            $relBase = basename($relative);
+            foreach (pdf_finder_smb_get_basename_variants($relBase) as $fileName) {
+                if ($relDir !== '.' && $relDir !== '') {
+                    $add($subdir . '/' . $relDir, $fileName);
+                }
+                $add($subdir, $relative);
+            }
         } else {
-            $add($subdir, $remote);
-            if ($remoteBs !== $remote) {
-                $add($subdir, $remoteBs);
+            foreach (pdf_finder_smb_get_basename_variants($basename) as $fileName) {
+                $add($subdir, $hasFolder ? $folder . '/' . $fileName : $fileName);
             }
         }
     }
@@ -641,23 +700,73 @@ function pdf_finder_smb_verify_pdf_file(string $path): array
 }
 
 /**
- * Download one indexed PDF from SMB to a temp file (read-only get).
+ * Live ls of one remote folder — PDF basenames and sizes.
  *
- * @return array{ok: bool, path: string, message: string}
+ * @return list<array{path: string, size: int}>
  */
-function pdf_finder_smb_download_to_temp(array $source, string $remotePath): array
+function pdf_finder_smb_list_pdfs_in_remote_folder(array $source, string $folder): array
 {
-    if (!pdf_finder_smb_validate_remote_path($remotePath)) {
-        return ['ok' => false, 'path' => '', 'message' => 'Invalid remote path.'];
+    $folder = pdf_finder_smb_normalize_ls_path($folder);
+    $cmd = $folder === ''
+        ? 'ls'
+        : 'cd "' . pdf_finder_smb_quote_remote_path($folder) . '"; ls';
+
+    $result = pdf_finder_smb_run($source, $cmd, true);
+    if (!$result['ok']) {
+        return [];
     }
 
-    $tmpdir = sys_get_temp_dir();
-    if ($tmpdir === '' || !is_writable($tmpdir)) {
-        return ['ok' => false, 'path' => '', 'message' => 'Temp directory is not writable.'];
+    $files = [];
+    foreach (explode("\n", $result['output']) as $line) {
+        $entry = pdf_finder_smb_parse_ls_line(trim($line));
+        if ($entry === null || $entry['is_dir'] || !preg_match('/\.pdf$/i', $entry['path'])) {
+            continue;
+        }
+        $files[] = [
+            'path' => pdf_finder_smb_normalize_smb_name(basename($entry['path'])),
+            'size' => $entry['size'],
+        ];
     }
 
-    $localBasename = 'pdffinder_smb_' . bin2hex(random_bytes(8)) . '.pdf';
-    $expectedPath = rtrim($tmpdir, '/\\') . '/' . $localBasename;
+    return $files;
+}
+
+/**
+ * If indexed basename is wrong, match the sole PDF in a folder with the same byte size.
+ */
+function pdf_finder_smb_resolve_by_size_in_folder(array $source, string $folder, int $expectedSize): ?string
+{
+    if ($expectedSize <= 0) {
+        return null;
+    }
+
+    $matches = [];
+    foreach (pdf_finder_smb_list_pdfs_in_remote_folder($source, $folder) as $row) {
+        if ($row['size'] === $expectedSize) {
+            $matches[] = $row['path'];
+        }
+    }
+
+    $matches = array_values(array_unique($matches));
+    if (count($matches) === 1) {
+        return $matches[0];
+    }
+
+    return null;
+}
+
+/**
+ * Try smbclient get attempts and verify the downloaded PDF.
+ *
+ * @return array{ok: bool, path: string, message: string, raw: string}
+ */
+function pdf_finder_smb_try_get_attempts(
+    array $source,
+    string $remotePath,
+    string $localBasename,
+    string $tmpdir,
+    string $expectedPath
+): array {
     $attempts = pdf_finder_smb_get_command_attempts($source, $remotePath, $localBasename);
     $lastError = 'SMB get failed.';
     $lastRaw = '';
@@ -702,7 +811,52 @@ function pdf_finder_smb_download_to_temp(array $source, string $remotePath): arr
             $found = $expectedPath;
         }
 
-        return ['ok' => true, 'path' => $found, 'message' => ''];
+        return ['ok' => true, 'path' => $found, 'message' => '', 'raw' => $lastRaw];
+    }
+
+    return ['ok' => false, 'path' => '', 'message' => $lastError, 'raw' => $lastRaw];
+}
+
+/**
+ * Download one indexed PDF from SMB to a temp file (read-only get).
+ *
+ * @return array{ok: bool, path: string, message: string}
+ */
+function pdf_finder_smb_download_to_temp(array $source, string $remotePath, int $expectedSize = 0): array
+{
+    $remotePath = pdf_finder_smb_normalize_ls_path($remotePath);
+    if (!pdf_finder_smb_validate_remote_path($remotePath)) {
+        return ['ok' => false, 'path' => '', 'message' => 'Invalid remote path.'];
+    }
+
+    $tmpdir = sys_get_temp_dir();
+    if ($tmpdir === '' || !is_writable($tmpdir)) {
+        return ['ok' => false, 'path' => '', 'message' => 'Temp directory is not writable.'];
+    }
+
+    $localBasename = 'pdffinder_smb_' . bin2hex(random_bytes(8)) . '.pdf';
+    $expectedPath = rtrim($tmpdir, '/\\') . '/' . $localBasename;
+
+    $try = pdf_finder_smb_try_get_attempts($source, $remotePath, $localBasename, $tmpdir, $expectedPath);
+    if ($try['ok']) {
+        return ['ok' => true, 'path' => $try['path'], 'message' => ''];
+    }
+
+    $lastError = $try['message'];
+    $lastRaw = $try['raw'];
+
+    $dir = dirname($remotePath);
+    if ($dir !== '.' && $dir !== '' && $expectedSize > 0) {
+        $resolvedBase = pdf_finder_smb_resolve_by_size_in_folder($source, $dir, $expectedSize);
+        if ($resolvedBase !== null) {
+            $resolvedPath = $dir . '/' . $resolvedBase;
+            $retry = pdf_finder_smb_try_get_attempts($source, $resolvedPath, $localBasename, $tmpdir, $expectedPath);
+            if ($retry['ok']) {
+                return ['ok' => true, 'path' => $retry['path'], 'message' => ''];
+            }
+            $lastError = $retry['message'];
+            $lastRaw = $retry['raw'];
+        }
     }
 
     error_log('pdffinder SMB get failed for ' . $remotePath . ': ' . $lastError . ' | raw: ' . substr($lastRaw, 0, 500));
@@ -1481,7 +1635,7 @@ function pdf_finder_smb_stream_file(array $entry, bool $inline): void
 
     set_time_limit(300);
 
-    $download = pdf_finder_smb_download_to_temp($source, $remotePath);
+    $download = pdf_finder_smb_download_to_temp($source, $remotePath, (int) ($entry['size'] ?? 0));
     if (!$download['ok']) {
         http_response_code(500);
         header('Content-Type: text/plain; charset=UTF-8');

@@ -219,7 +219,7 @@ foreach ($sources as $source) {
         $remote = (string) ($sampleEntry['remote_path'] ?? '');
         if ($remote !== '') {
             echo "\nDownload test (first indexed PDF): {$remote}\n";
-            $dl = pdf_finder_smb_download_to_temp($source, $remote);
+            $dl = pdf_finder_smb_download_to_temp($source, $remote, (int) ($sampleEntry['size'] ?? 0));
             if ($dl['ok']) {
                 $sz = filesize($dl['path']);
                 echo "GET OK — " . ($sz !== false ? $sz : '?') . " bytes written to temp\n";

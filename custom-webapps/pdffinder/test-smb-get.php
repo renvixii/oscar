@@ -34,7 +34,8 @@ if ($source === null) {
 $remote = (string) $entry['remote_path'];
 echo "Source: {$source['label']} (//{$source['host']}/{$source['share']})\n";
 echo "Subdirectory: " . (($source['subdirectory'] ?? '') !== '' ? $source['subdirectory'] : '(none)') . "\n";
-echo "Remote path: {$remote}\n";
+echo "Remote path (indexed): {$remote}\n";
+echo "Remote path (normalized): " . pdf_finder_smb_normalize_ls_path($remote) . "\n";
 echo "Indexed size: " . (int) ($entry['size'] ?? 0) . " bytes\n\n";
 
 $attempts = pdf_finder_smb_get_command_attempts($source, $remote, 'pdffinder_test.pdf');
@@ -44,7 +45,7 @@ foreach ($attempts as $i => $cmd) {
 }
 echo "\n";
 
-$dl = pdf_finder_smb_download_to_temp($source, $remote);
+$dl = pdf_finder_smb_download_to_temp($source, $remote, (int) ($entry['size'] ?? 0));
 if (!$dl['ok']) {
     echo "FAILED: {$dl['message']}\n";
     exit(1);
