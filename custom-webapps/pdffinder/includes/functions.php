@@ -484,19 +484,28 @@ function pdf_finder_merge_all_results(array $pdffinder, array $oscar, array $smb
 /**
  * View URL for a search result row.
  */
-function pdf_finder_result_view_url(array $entry, string $query = ''): string
+function pdf_finder_result_view_url(array $entry, string $query = '', int $page = 1, string $source = 'all'): string
 {
     $id = (string) ($entry['id'] ?? '');
-    $q = $query !== '' ? '&q=' . rawurlencode($query) : '';
+    $extra = '';
+    if ($query !== '') {
+        $extra .= '&q=' . rawurlencode($query);
+    }
+    if (pdf_finder_extended_sources_enabled()) {
+        $extra .= '&source=' . rawurlencode($source);
+    }
+    if ($page > 1) {
+        $extra .= '&page=' . $page;
+    }
 
     if (str_starts_with($id, 'smb:')) {
-        return 'view-smb.php?id=' . rawurlencode($id) . $q;
+        return 'view-smb.php?id=' . rawurlencode($id) . $extra;
     }
     if (str_starts_with($id, 'oscar:')) {
-        return 'view-oscar.php?id=' . rawurlencode($id) . $q;
+        return 'view-oscar.php?id=' . rawurlencode($id) . $extra;
     }
 
-    return 'view.php?id=' . rawurlencode($id) . $q;
+    return 'view.php?id=' . rawurlencode($id) . $extra;
 }
 
 /**
@@ -601,6 +610,146 @@ function pdf_finder_format_size(int $bytes): string
         return round($bytes / 1048576, 1) . ' MB';
     }
     return round($bytes / 1073741824, 2) . ' GB';
+}
+
+/** Results per page on search.php */
+function pdf_finder_results_per_page(): int
+{
+    return 25;
+}
+
+function pdf_finder_pagination_page_from_request(): int
+{
+    $page = isset($_GET['page']) ? (int) $_GET['page'] : 1;
+
+    return max(1, $page);
+}
+
+/**
+ * Slice a result list for the current page.
+ *
+ * @template T
+ * @param list<T> $items
+ * @return array{
+ *   items: list<T>,
+ *   page: int,
+ *   per_page: int,
+ *   total: int,
+ *   total_pages: int,
+ *   from: int,
+ *   to: int
+ * }
+ */
+function pdf_finder_paginate(array $items, int $page, ?int $perPage = null): array
+{
+    $perPage = $perPage ?? pdf_finder_results_per_page();
+    $perPage = max(1, min(100, $perPage));
+    $total = count($items);
+    $totalPages = $total === 0 ? 0 : (int) ceil($total / $perPage);
+    $page = $totalPages === 0 ? 1 : min(max(1, $page), $totalPages);
+    $offset = ($page - 1) * $perPage;
+    $slice = array_slice($items, $offset, $perPage);
+    $from = $total === 0 ? 0 : $offset + 1;
+    $to = $total === 0 ? 0 : min($offset + count($slice), $total);
+
+    return [
+        'items' => $slice,
+        'page' => $page,
+        'per_page' => $perPage,
+        'total' => $total,
+        'total_pages' => $totalPages,
+        'from' => $from,
+        'to' => $to,
+    ];
+}
+
+/**
+ * Build search.php URL preserving query, source filter, and page.
+ */
+function pdf_finder_search_results_url(string $query, string $source = 'all', int $page = 1): string
+{
+    $query = trim($query);
+    if ($query === '') {
+        return 'index.php';
+    }
+
+    $params = ['q' => $query];
+    if (pdf_finder_extended_sources_enabled()) {
+        $params['source'] = $source;
+    }
+    if ($page > 1) {
+        $params['page'] = $page;
+    }
+
+    return 'search.php?' . http_build_query($params);
+}
+
+/**
+ * @param array{page: int, total_pages: int} $pagination
+ * @param array<string, string> $baseParams
+ */
+function pdf_finder_render_pagination(array $pagination, array $baseParams, string $script = 'search.php'): void
+{
+    $page = (int) $pagination['page'];
+    $totalPages = (int) $pagination['total_pages'];
+    if ($totalPages <= 1) {
+        return;
+    }
+
+    $urlFor = static function (int $targetPage) use ($baseParams, $script): string {
+        $params = $baseParams;
+        if ($targetPage > 1) {
+            $params['page'] = (string) $targetPage;
+        }
+
+        return $script . '?' . http_build_query($params);
+    };
+
+    echo '<nav class="pagination" aria-label="Search results pages">';
+
+    if ($page > 1) {
+        echo '<a class="pagination__link pagination__prev" href="' . h($urlFor($page - 1)) . '">Previous</a>';
+    } else {
+        echo '<span class="pagination__link pagination__prev is-disabled" aria-disabled="true">Previous</span>';
+    }
+
+    echo '<span class="pagination__pages">';
+
+    $window = 2;
+    $start = max(1, $page - $window);
+    $end = min($totalPages, $page + $window);
+
+    if ($start > 1) {
+        echo '<a class="pagination__page" href="' . h($urlFor(1)) . '">1</a>';
+        if ($start > 2) {
+            echo '<span class="pagination__ellipsis" aria-hidden="true">…</span>';
+        }
+    }
+
+    for ($p = $start; $p <= $end; $p++) {
+        if ($p === $page) {
+            echo '<span class="pagination__page is-current" aria-current="page">' . $p . '</span>';
+        } else {
+            echo '<a class="pagination__page" href="' . h($urlFor($p)) . '">' . $p . '</a>';
+        }
+    }
+
+    if ($end < $totalPages) {
+        if ($end < $totalPages - 1) {
+            echo '<span class="pagination__ellipsis" aria-hidden="true">…</span>';
+        }
+        echo '<a class="pagination__page" href="' . h($urlFor($totalPages)) . '">' . $totalPages . '</a>';
+    }
+
+    echo '</span>';
+
+    if ($page < $totalPages) {
+        echo '<a class="pagination__link pagination__next" href="' . h($urlFor($page + 1)) . '">Next</a>';
+    } else {
+        echo '<span class="pagination__link pagination__next is-disabled" aria-disabled="true">Next</span>';
+    }
+
+    echo '</nav>';
 }
 
 /**

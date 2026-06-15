@@ -11,6 +11,7 @@ require_once __DIR__ . '/includes/smb_config.php';
 
 $query = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
 $source = isset($_GET['source']) ? pdf_finder_normalize_search_source((string) $_GET['source']) : 'all';
+$page = pdf_finder_pagination_page_from_request();
 $oscarEnabled = pdf_finder_oscar_enabled();
 $smbEnabled = pdf_finder_smb_enabled();
 $extendedSources = pdf_finder_extended_sources_enabled();
@@ -44,6 +45,12 @@ if ($query !== '') {
 }
 
 $resultCount = count($results);
+$pagination = pdf_finder_paginate($results, $page);
+$resultsPage = $pagination['items'];
+$paginationParams = ['q' => $query];
+if ($extendedSources) {
+    $paginationParams['source'] = $source;
+}
 $indexedCount = $index['count'] ?? 0;
 $showSourceColumn = $extendedSources;
 
@@ -108,7 +115,12 @@ pdf_finder_header('Search Results', 'search');
                 <?php if ($extendedSources): ?>
                     &middot; filter: <?= h(pdf_finder_search_source_label($source)) ?>
                 <?php endif; ?>
+                <?php if ($pagination['total_pages'] > 1): ?>
+                    &middot; showing <?= (int) $pagination['from'] ?>&ndash;<?= (int) $pagination['to'] ?>
+                <?php endif; ?>
             </p>
+
+            <?php pdf_finder_render_pagination($pagination, $paginationParams); ?>
 
             <div class="results-table-wrap">
                 <table class="results-table">
@@ -126,7 +138,7 @@ pdf_finder_header('Search Results', 'search');
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($results as $file): ?>
+                        <?php foreach ($resultsPage as $file): ?>
                             <?php
                             $id = (string) ($file['id'] ?? '');
                             $size = (int) ($file['size'] ?? 0);
@@ -159,7 +171,7 @@ pdf_finder_header('Search Results', 'search');
                                 <td data-label="Size"><?= h(pdf_finder_format_size($size)) ?></td>
                                 <td class="actions" data-label="">
                                     <div class="btn-group">
-                                        <a class="btn btn-secondary btn-sm" href="<?= h(pdf_finder_result_view_url($file, $query)) ?>">View</a>
+                                        <a class="btn btn-secondary btn-sm" href="<?= h(pdf_finder_result_view_url($file, $query, $pagination['page'], $source)) ?>">View</a>
                                         <a class="btn btn-primary btn-sm" href="<?= h(pdf_finder_result_download_url($file)) ?>">Download</a>
                                     </div>
                                 </td>
@@ -168,6 +180,8 @@ pdf_finder_header('Search Results', 'search');
                     </tbody>
                 </table>
             </div>
+
+            <?php pdf_finder_render_pagination($pagination, $paginationParams); ?>
         <?php endif; ?>
     </div>
 <?php endif; ?>

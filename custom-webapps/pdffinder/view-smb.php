@@ -39,8 +39,10 @@ if ($stream) {
 }
 
 $backQuery = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
+$backSource = isset($_GET['source']) ? pdf_finder_normalize_search_source((string) $_GET['source']) : 'all';
+$backPage = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
 $backUrl = $backQuery !== ''
-    ? 'search.php?q=' . rawurlencode($backQuery)
+    ? pdf_finder_search_results_url($backQuery, $backSource, $backPage)
     : 'index.php';
 
 $streamUrl = 'view-smb.php?id=' . rawurlencode($id) . '&stream=1';
