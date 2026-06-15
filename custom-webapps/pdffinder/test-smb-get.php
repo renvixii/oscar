@@ -36,9 +36,26 @@ echo "Source: {$source['label']} (//{$source['host']}/{$source['share']})\n";
 echo "Subdirectory: " . (($source['subdirectory'] ?? '') !== '' ? $source['subdirectory'] : '(none)') . "\n";
 echo "Remote path (indexed): {$remote}\n";
 echo "Remote path (normalized): " . pdf_finder_smb_normalize_ls_path($remote) . "\n";
-echo "Indexed size: " . (int) ($entry['size'] ?? 0) . " bytes\n\n";
+echo "Indexed size: " . (int) ($entry['size'] ?? 0) . " bytes\n";
+if (pdf_finder_smb_path_looks_corrupt($remote)) {
+    echo "PATH WARNING: indexed path looks corrupt — rebuild SMB index from rebuild-index.php.\n";
+}
+echo "\n";
 
-$attempts = pdf_finder_smb_get_command_attempts($source, $remote, 'pdffinder_test.pdf');
+$fetchPath = $remote;
+$dir = dirname($remote);
+$indexedSize = (int) ($entry['size'] ?? 0);
+if ($dir !== '.' && $dir !== '' && $indexedSize > 0) {
+    $resolvedBase = pdf_finder_smb_resolve_by_size_in_folder($source, $dir, $indexedSize);
+    if ($resolvedBase !== null) {
+        $fetchPath = $dir . '/' . $resolvedBase;
+        if ($fetchPath !== $remote) {
+            echo "Resolved by folder listing + size: {$fetchPath}\n\n";
+        }
+    }
+}
+
+$attempts = pdf_finder_smb_get_command_attempts($source, $fetchPath, 'pdffinder_test.pdf');
 echo "Will try " . count($attempts) . " smbclient command variant(s):\n";
 foreach ($attempts as $i => $cmd) {
     echo '  ' . ($i + 1) . '. ' . $cmd . "\n";

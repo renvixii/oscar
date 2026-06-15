@@ -175,6 +175,11 @@ foreach ($sources as $source) {
         if (!empty($index['built_at'])) {
             echo ' (built ' . $index['built_at'] . ')';
         }
+        $corrupt = pdf_finder_smb_index_corrupt_count($index);
+        if ($corrupt > 0) {
+            echo "\nINDEX WARNING: {$corrupt} path(s) look corrupt (old compact-parser index).";
+            echo ' Rebuild from rebuild-index.php — editing the JSON file will not fix paths.';
+        }
         echo "\n";
     }
 
@@ -214,18 +219,34 @@ foreach ($sources as $source) {
         echo "No PDFs found in recursive scan.\n";
     }
 
-    if ($test['pdf_count'] > 0 && $index !== null && !empty($index['files'])) {
-        $sampleEntry = $index['files'][0];
-        $remote = (string) ($sampleEntry['remote_path'] ?? '');
-        if ($remote !== '') {
-            echo "\nDownload test (first indexed PDF): {$remote}\n";
-            $dl = pdf_finder_smb_download_to_temp($source, $remote, (int) ($sampleEntry['size'] ?? 0));
-            if ($dl['ok']) {
-                $sz = filesize($dl['path']);
-                echo "GET OK — " . ($sz !== false ? $sz : '?') . " bytes written to temp\n";
-                @unlink($dl['path']);
-            } else {
-                echo "GET FAILED: " . $dl['message'] . "\n";
+    if ($test['pdf_count'] > 0) {
+        $sampleEntry = null;
+        if ($index !== null) {
+            $sampleEntry = pdf_finder_smb_index_first_valid_entry($index);
+        }
+        if ($sampleEntry === null && $test['sample'] !== []) {
+            $livePath = (string) $test['sample'][0];
+            $sampleEntry = [
+                'remote_path' => $livePath,
+                'size' => 0,
+            ];
+            echo "\nDownload test (live scan sample — index has no valid paths): {$livePath}\n";
+        } elseif ($sampleEntry !== null) {
+            $remote = (string) ($sampleEntry['remote_path'] ?? '');
+            echo "\nDownload test: {$remote}\n";
+        }
+
+        if ($sampleEntry !== null) {
+            $remote = (string) ($sampleEntry['remote_path'] ?? '');
+            if ($remote !== '') {
+                $dl = pdf_finder_smb_download_to_temp($source, $remote, (int) ($sampleEntry['size'] ?? 0));
+                if ($dl['ok']) {
+                    $sz = filesize($dl['path']);
+                    echo 'GET OK — ' . ($sz !== false ? $sz : '?') . " bytes written to temp\n";
+                    @unlink($dl['path']);
+                } else {
+                    echo 'GET FAILED: ' . $dl['message'] . "\n";
+                }
             }
         }
     }

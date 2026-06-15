@@ -179,6 +179,19 @@ function pdf_finder_smb_parse_ls_line(string $line): ?array
         return null;
     }
 
+    // Quoted pair: "folder/","file.pdf" size N
+    if (preg_match('/^"([^"]*)"\s*,\s*"([^"]+\.pdf)"\s+(?:size\s+)?(\d+)/i', $line, $m)) {
+        $dir = rtrim(pdf_finder_smb_normalize_ls_path($m[1]), '/');
+        $file = pdf_finder_smb_normalize_smb_name($m[2]);
+        $path = $dir !== '' ? $dir . '/' . $file : $file;
+
+        return [
+            'path' => $path,
+            'is_dir' => false,
+            'size' => (int) $m[3],
+        ];
+    }
+
     // Quoted grepable: "path/to/file.pdf" size 12345 ...
     if (preg_match('/^"([^"]+)"\s+size\s+(\d+)/i', $line, $m)) {
         $path = pdf_finder_smb_normalize_ls_path($m[1]);
@@ -850,7 +863,17 @@ function pdf_finder_smb_download_to_temp(array $source, string $remotePath, int 
     $localBasename = 'pdffinder_smb_' . bin2hex(random_bytes(8)) . '.pdf';
     $expectedPath = rtrim($tmpdir, '/\\') . '/' . $localBasename;
 
-    $try = pdf_finder_smb_try_get_attempts($source, $remotePath, $localBasename, $tmpdir, $expectedPath);
+    // Prefer live folder listing + byte size — indexed paths may be stale or corrupt.
+    $fetchPath = $remotePath;
+    $dir = dirname($remotePath);
+    if ($dir !== '.' && $dir !== '' && $expectedSize > 0) {
+        $resolvedBase = pdf_finder_smb_resolve_by_size_in_folder($source, $dir, $expectedSize);
+        if ($resolvedBase !== null) {
+            $fetchPath = $dir . '/' . $resolvedBase;
+        }
+    }
+
+    $try = pdf_finder_smb_try_get_attempts($source, $fetchPath, $localBasename, $tmpdir, $expectedPath);
     if ($try['ok']) {
         return ['ok' => true, 'path' => $try['path'], 'message' => ''];
     }
@@ -858,18 +881,13 @@ function pdf_finder_smb_download_to_temp(array $source, string $remotePath, int 
     $lastError = $try['message'];
     $lastRaw = $try['raw'];
 
-    $dir = dirname($remotePath);
-    if ($dir !== '.' && $dir !== '' && $expectedSize > 0) {
-        $resolvedBase = pdf_finder_smb_resolve_by_size_in_folder($source, $dir, $expectedSize);
-        if ($resolvedBase !== null) {
-            $resolvedPath = $dir . '/' . $resolvedBase;
-            $retry = pdf_finder_smb_try_get_attempts($source, $resolvedPath, $localBasename, $tmpdir, $expectedPath);
-            if ($retry['ok']) {
-                return ['ok' => true, 'path' => $retry['path'], 'message' => ''];
-            }
-            $lastError = $retry['message'];
-            $lastRaw = $retry['raw'];
+    if ($fetchPath !== $remotePath) {
+        $retry = pdf_finder_smb_try_get_attempts($source, $remotePath, $localBasename, $tmpdir, $expectedPath);
+        if ($retry['ok']) {
+            return ['ok' => true, 'path' => $retry['path'], 'message' => ''];
         }
+        $lastError = $retry['message'];
+        $lastRaw = $retry['raw'];
     }
 
     error_log('pdffinder SMB get failed for ' . $remotePath . ': ' . $lastError . ' | raw: ' . substr($lastRaw, 0, 500));
@@ -1036,6 +1054,80 @@ function pdf_finder_smb_list_command(array $source): string
 }
 
 /**
+ * Detect paths produced by the compact ls fallback (not real NAS names).
+ */
+function pdf_finder_smb_path_looks_corrupt(string $path): bool
+{
+    // e.g. 382UNIT 1 instead of 382 - UNIT 1
+    if (preg_match('/\dUNIT\s+\d/i', $path)) {
+        return true;
+    }
+    // e.g. folder/,file.pdf from mis-merged quoted pairs
+    if (preg_match('#/[,(\']#', $path)) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * Parse one smbclient -g line into a PDF entry, or null.
+ *
+ * @return array{remote_path: string, filename: string, size: int, modified: int}|null
+ */
+function pdf_finder_smb_parse_grepable_line(string $line): ?array
+{
+    $line = trim($line);
+    if ($line === '' || str_starts_with($line, 'NT_STATUS_')) {
+        return null;
+    }
+
+    $remotePath = null;
+    $size = 0;
+
+    // "folder/","file.pdf" size N — some smbclient builds split directory and filename.
+    if (preg_match('/^"([^"]*)"\s*,\s*"([^"]+\.pdf)"\s+(?:size\s+)?(\d+)/i', $line, $m)) {
+        $dir = rtrim(pdf_finder_smb_normalize_ls_path($m[1]), '/');
+        $file = pdf_finder_smb_normalize_smb_name($m[2]);
+        $remotePath = $dir !== '' ? $dir . '/' . $file : $file;
+        $size = (int) $m[3];
+    } elseif (preg_match('/^"([^"]+\.pdf)"\s+(?:size\s+)?(\d+)/i', $line, $m)) {
+        $remotePath = pdf_finder_smb_normalize_ls_path($m[1]);
+        $size = (int) $m[2];
+    } else {
+        return null;
+    }
+
+    if (str_ends_with($remotePath, '/') || str_ends_with($remotePath, '\\')) {
+        return null;
+    }
+    if (!preg_match('/\.pdf$/i', $remotePath)) {
+        return null;
+    }
+    if (!pdf_finder_smb_validate_remote_path($remotePath)) {
+        return null;
+    }
+    if (pdf_finder_smb_path_looks_corrupt($remotePath)) {
+        return null;
+    }
+
+    $modified = 0;
+    if (preg_match('/\s([A-Za-z]{3}\s+[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s*$/', $line, $dm)) {
+        $ts = strtotime($dm[1]);
+        if ($ts !== false) {
+            $modified = (int) $ts;
+        }
+    }
+
+    return [
+        'remote_path' => $remotePath,
+        'filename' => basename($remotePath),
+        'size' => $size,
+        'modified' => $modified,
+    ];
+}
+
+/**
  * Parse PDF files from smbclient -g output ("path" size N lines).
  * Authoritative for recurse listings — compact ls lines corrupt names with " - UNIT" in them.
  *
@@ -1047,43 +1139,15 @@ function pdf_finder_smb_parse_grepable_pdfs(string $output): array
     $seen = [];
 
     foreach (explode("\n", $output) as $line) {
-        $line = trim($line);
-        if ($line === '' || str_starts_with($line, 'NT_STATUS_')) {
+        $entry = pdf_finder_smb_parse_grepable_line($line);
+        if ($entry === null) {
             continue;
         }
-        if (!preg_match('/^"([^"]+)"\s+size\s+(\d+)/i', $line, $m)) {
+        if (isset($seen[$entry['remote_path']])) {
             continue;
         }
-        if (str_ends_with($m[1], '/') || str_ends_with($m[1], '\\')) {
-            continue;
-        }
-
-        $remotePath = pdf_finder_smb_normalize_ls_path($m[1]);
-        if (!preg_match('/\.pdf$/i', $remotePath)) {
-            continue;
-        }
-        if (!pdf_finder_smb_validate_remote_path($remotePath)) {
-            continue;
-        }
-        if (isset($seen[$remotePath])) {
-            continue;
-        }
-        $seen[$remotePath] = true;
-
-        $modified = 0;
-        if (preg_match('/\s([A-Za-z]{3}\s+[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s*$/', $line, $dm)) {
-            $ts = strtotime($dm[1]);
-            if ($ts !== false) {
-                $modified = (int) $ts;
-            }
-        }
-
-        $files[] = [
-            'remote_path' => $remotePath,
-            'filename' => basename($remotePath),
-            'size' => (int) $m[2],
-            'modified' => $modified,
-        ];
+        $seen[$entry['remote_path']] = true;
+        $files[] = $entry;
     }
 
     return $files;
@@ -1135,6 +1199,10 @@ function pdf_finder_smb_parse_listing_compact(string $output): array
 
         $remotePath = pdf_finder_smb_full_remote_path($entry['path'], $parentStack);
 
+        if (pdf_finder_smb_path_looks_corrupt($remotePath)) {
+            continue;
+        }
+
         if (!pdf_finder_smb_validate_remote_path($remotePath)) {
             continue;
         }
@@ -1165,13 +1233,18 @@ function pdf_finder_smb_parse_listing_compact(string $output): array
 /**
  * Parse smbclient -g lines for PDF files.
  *
+ * @param bool $allowCompactFallback When false (index rebuild), never use compact ls — it corrupts scan filenames.
  * @return list<array{remote_path: string, filename: string, size: int, modified: int}>
  */
-function pdf_finder_smb_parse_listing(string $output): array
+function pdf_finder_smb_parse_listing(string $output, bool $allowCompactFallback = true): array
 {
     $grepable = pdf_finder_smb_parse_grepable_pdfs($output);
     if ($grepable !== []) {
         return $grepable;
+    }
+
+    if (!$allowCompactFallback) {
+        return [];
     }
 
     return pdf_finder_smb_parse_listing_compact($output);
@@ -1206,6 +1279,42 @@ function pdf_finder_smb_display_directory(string $remotePath): string
 }
 
 /**
+ * Count indexed paths that look like compact-parser artifacts.
+ *
+ * @param array{built_at?: string, count?: int, files?: list<array<string, mixed>>} $index
+ */
+function pdf_finder_smb_index_corrupt_count(array $index): int
+{
+    $count = 0;
+    foreach ($index['files'] ?? [] as $file) {
+        $path = (string) ($file['remote_path'] ?? '');
+        if ($path !== '' && pdf_finder_smb_path_looks_corrupt($path)) {
+            $count++;
+        }
+    }
+
+    return $count;
+}
+
+/**
+ * @param array{built_at?: string, count?: int, files?: list<array<string, mixed>>} $index
+ * @return array<string, mixed>|null
+ */
+function pdf_finder_smb_index_first_valid_entry(array $index): ?array
+{
+    foreach ($index['files'] ?? [] as $file) {
+        $path = (string) ($file['remote_path'] ?? '');
+        if ($path === '' || pdf_finder_smb_path_looks_corrupt($path)) {
+            continue;
+        }
+
+        return $file;
+    }
+
+    return null;
+}
+
+/**
  * @param list<array{remote_path: string, filename: string, size: int, modified: int}> $listed
  * @return list<array<string, mixed>>
  */
@@ -1215,6 +1324,9 @@ function pdf_finder_smb_entries_from_listing(array $source, array $listed): arra
     $seen = [];
     foreach ($listed as $row) {
         $remotePath = $row['remote_path'];
+        if (pdf_finder_smb_path_looks_corrupt($remotePath)) {
+            continue;
+        }
         if (isset($seen[$remotePath])) {
             continue;
         }
@@ -1337,7 +1449,15 @@ function pdf_finder_smb_build_index(array $source): array
         return ['ok' => false, 'files' => [], 'message' => $msg];
     }
 
-    $listed = pdf_finder_smb_parse_listing($result['output']);
+    $listed = pdf_finder_smb_parse_listing($result['output'], false);
+    if ($listed === []) {
+        return [
+            'ok' => false,
+            'files' => [],
+            'message' => 'SMB listing returned no PDFs via grepable (-g) parse. Re-run test-smb-connection.php; do not edit the JSON index by hand.',
+        ];
+    }
+
     $files = pdf_finder_smb_entries_from_listing($source, $listed);
 
     if (!pdf_finder_smb_save_index($source, $files)) {
