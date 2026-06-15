@@ -716,6 +716,19 @@ function pdf_finder_smb_list_pdfs_in_remote_folder(array $source, string $folder
         return [];
     }
 
+    $listed = pdf_finder_smb_parse_grepable_pdfs($result['output']);
+    if ($listed !== []) {
+        $files = [];
+        foreach ($listed as $row) {
+            $files[] = [
+                'path' => pdf_finder_smb_normalize_smb_name(basename($row['remote_path'])),
+                'size' => $row['size'],
+            ];
+        }
+
+        return $files;
+    }
+
     $files = [];
     foreach (explode("\n", $result['output']) as $line) {
         $entry = pdf_finder_smb_parse_ls_line(trim($line));
@@ -1023,11 +1036,65 @@ function pdf_finder_smb_list_command(array $source): string
 }
 
 /**
- * Parse smbclient -g lines for PDF files.
+ * Parse PDF files from smbclient -g output ("path" size N lines).
+ * Authoritative for recurse listings — compact ls lines corrupt names with " - UNIT" in them.
  *
  * @return list<array{remote_path: string, filename: string, size: int, modified: int}>
  */
-function pdf_finder_smb_parse_listing(string $output): array
+function pdf_finder_smb_parse_grepable_pdfs(string $output): array
+{
+    $files = [];
+    $seen = [];
+
+    foreach (explode("\n", $output) as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, 'NT_STATUS_')) {
+            continue;
+        }
+        if (!preg_match('/^"([^"]+)"\s+size\s+(\d+)/i', $line, $m)) {
+            continue;
+        }
+        if (str_ends_with($m[1], '/') || str_ends_with($m[1], '\\')) {
+            continue;
+        }
+
+        $remotePath = pdf_finder_smb_normalize_ls_path($m[1]);
+        if (!preg_match('/\.pdf$/i', $remotePath)) {
+            continue;
+        }
+        if (!pdf_finder_smb_validate_remote_path($remotePath)) {
+            continue;
+        }
+        if (isset($seen[$remotePath])) {
+            continue;
+        }
+        $seen[$remotePath] = true;
+
+        $modified = 0;
+        if (preg_match('/\s([A-Za-z]{3}\s+[A-Za-z]{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s*$/', $line, $dm)) {
+            $ts = strtotime($dm[1]);
+            if ($ts !== false) {
+                $modified = (int) $ts;
+            }
+        }
+
+        $files[] = [
+            'remote_path' => $remotePath,
+            'filename' => basename($remotePath),
+            'size' => (int) $m[2],
+            'modified' => $modified,
+        ];
+    }
+
+    return $files;
+}
+
+/**
+ * Fallback parser for smbclient ls without usable -g lines (compact + indent stack).
+ *
+ * @return list<array{remote_path: string, filename: string, size: int, modified: int}>
+ */
+function pdf_finder_smb_parse_listing_compact(string $output): array
 {
     $files = [];
     $seen = [];
@@ -1093,6 +1160,21 @@ function pdf_finder_smb_parse_listing(string $output): array
     }
 
     return $files;
+}
+
+/**
+ * Parse smbclient -g lines for PDF files.
+ *
+ * @return list<array{remote_path: string, filename: string, size: int, modified: int}>
+ */
+function pdf_finder_smb_parse_listing(string $output): array
+{
+    $grepable = pdf_finder_smb_parse_grepable_pdfs($output);
+    if ($grepable !== []) {
+        return $grepable;
+    }
+
+    return pdf_finder_smb_parse_listing_compact($output);
 }
 
 function pdf_finder_smb_file_id(string $sourceId, string $remotePath): string
