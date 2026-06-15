@@ -441,9 +441,9 @@ function pdf_finder_smb_quote_remote_path(string $path): string
 /**
  * Run smbclient with a fixed command string (built by pdffinder, not user input).
  *
- * @return array{ok: bool, output: string, exit_code: int}
+ * @return array{ok: bool, output: string, exit_code: int, raw_output?: string}
  */
-function pdf_finder_smb_run(array $source, string $smbCommand): array
+function pdf_finder_smb_run(array $source, string $smbCommand, bool $grepable = true): array
 {
     $smbclient = pdf_finder_smbclient_path();
     if ($smbclient === null) {
@@ -456,12 +456,14 @@ function pdf_finder_smb_run(array $source, string $smbCommand): array
 
     $target = pdf_finder_smb_target($source);
     $auth = $source['username'] . '%' . $source['password'];
+    $grepFlag = $grepable ? ' -g' : ' -d 0';
 
     $cmd = sprintf(
-        '%s %s -U %s -m SMB3 -g -c %s 2>&1',
+        '%s %s -U %s -m SMB3%s -c %s 2>&1',
         escapeshellarg($smbclient),
         escapeshellarg($target),
         escapeshellarg($auth),
+        $grepFlag,
         escapeshellarg($smbCommand)
     );
 
@@ -480,6 +482,60 @@ function pdf_finder_smb_run(array $source, string $smbCommand): array
     }
 
     return ['ok' => true, 'output' => $text, 'exit_code' => $exitCode, 'raw_output' => $text];
+}
+
+/**
+ * Escape a local filesystem path for smbclient get "remote" "local".
+ */
+function pdf_finder_smb_quote_local_path(string $path): string
+{
+    return str_replace('"', '\\"', $path);
+}
+
+/**
+ * Download one indexed PDF from SMB to a temp file (read-only get).
+ *
+ * @return array{ok: bool, path: string, message: string}
+ */
+function pdf_finder_smb_download_to_temp(array $source, string $remotePath): array
+{
+    if (!pdf_finder_smb_validate_remote_path($remotePath)) {
+        return ['ok' => false, 'path' => '', 'message' => 'Invalid remote path.'];
+    }
+
+    $tmpdir = sys_get_temp_dir();
+    if ($tmpdir === '' || !is_writable($tmpdir)) {
+        return ['ok' => false, 'path' => '', 'message' => 'Temp directory is not writable.'];
+    }
+
+    $localPath = $tmpdir . '/pdffinder_smb_' . bin2hex(random_bytes(16)) . '.pdf';
+    $getCmd = 'get "' . pdf_finder_smb_quote_remote_path($remotePath) . '" "'
+        . pdf_finder_smb_quote_local_path($localPath) . '"';
+
+    $result = pdf_finder_smb_run($source, $getCmd, false);
+
+    if (!$result['ok']) {
+        @unlink($localPath);
+        return ['ok' => false, 'path' => '', 'message' => $result['output']];
+    }
+
+    if (!is_file($localPath)) {
+        return ['ok' => false, 'path' => '', 'message' => 'SMB get did not create a local file.'];
+    }
+
+    $size = filesize($localPath);
+    if ($size === false || $size < 5) {
+        @unlink($localPath);
+        return ['ok' => false, 'path' => '', 'message' => 'Downloaded file is empty or too small to be a PDF.'];
+    }
+
+    $header = file_get_contents($localPath, false, null, 0, 5);
+    if ($header !== '%PDF-') {
+        @unlink($localPath);
+        return ['ok' => false, 'path' => '', 'message' => 'Downloaded data is not a PDF (smbclient may have returned an error message).'];
+    }
+
+    return ['ok' => true, 'path' => $localPath, 'message' => ''];
 }
 
 /**
@@ -1195,8 +1251,7 @@ function pdf_finder_smb_stream_file(array $entry, bool $inline): void
         exit;
     }
 
-    $smbclient = pdf_finder_smbclient_path();
-    if ($smbclient === null) {
+    if (!pdf_finder_smbclient_available()) {
         http_response_code(503);
         header('Content-Type: text/plain; charset=UTF-8');
         echo 'smbclient is not installed.';
@@ -1206,60 +1261,49 @@ function pdf_finder_smb_stream_file(array $entry, bool $inline): void
     $remotePath = (string) $entry['remote_path'];
     $filename = basename(str_replace(["\r", "\n", '"'], '', (string) ($entry['filename'] ?? 'document.pdf')));
 
-    $getCmd = 'get "' . pdf_finder_smb_quote_remote_path($remotePath) . '" -';
-    $target = pdf_finder_smb_target($source);
-    $auth = $source['username'] . '%' . $source['password'];
-
-    $cmd = sprintf(
-        '%s %s -U %s -m SMB3 -c %s',
-        escapeshellarg($smbclient),
-        escapeshellarg($target),
-        escapeshellarg($auth),
-        escapeshellarg($getCmd)
-    );
-
-    $descriptors = [
-        0 => ['pipe', 'r'],
-        1 => ['pipe', 'w'],
-        2 => ['pipe', 'w'],
-    ];
-
-    $process = proc_open($cmd, $descriptors, $pipes);
-    if (!is_resource($process)) {
-        http_response_code(500);
+    $download = pdf_finder_smb_download_to_temp($source, $remotePath);
+    if (!$download['ok']) {
+        http_response_code(502);
         header('Content-Type: text/plain; charset=UTF-8');
-        echo 'Could not start smbclient.';
+        echo 'Could not download PDF from SMB: ' . $download['message'];
+        error_log('pdffinder SMB download failed: ' . $download['message']);
         exit;
     }
 
-    fclose($pipes[0]);
-    $stderr = stream_get_contents($pipes[2]);
-    fclose($pipes[2]);
+    $localPath = $download['path'];
+    $size = filesize($localPath);
+    if ($size === false) {
+        @unlink($localPath);
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Could not read downloaded PDF.';
+        exit;
+    }
 
     header('Content-Type: application/pdf');
     header('Content-Disposition: ' . ($inline ? 'inline' : 'attachment') . '; filename="' . $filename . '"');
+    header('Content-Length: ' . (string) $size);
     header('X-Content-Type-Options: nosniff');
     header('Cache-Control: private, max-age=3600');
 
-    $size = (int) ($entry['size'] ?? 0);
-    if ($size > 0) {
-        header('Content-Length: ' . (string) $size);
+    $handle = fopen($localPath, 'rb');
+    if ($handle === false) {
+        @unlink($localPath);
+        http_response_code(500);
+        header('Content-Type: text/plain; charset=UTF-8');
+        echo 'Could not open downloaded PDF.';
+        exit;
     }
 
-    while (!feof($pipes[1])) {
-        $chunk = fread($pipes[1], 8192);
+    while (!feof($handle)) {
+        $chunk = fread($handle, 8192);
         if ($chunk === false) {
             break;
         }
         echo $chunk;
     }
-    fclose($pipes[1]);
-
-    $exitCode = proc_close($process);
-    if ($exitCode !== 0) {
-        // Headers may already be sent; best-effort only.
-        error_log('pdffinder SMB stream failed (exit ' . $exitCode . ')');
-    }
+    fclose($handle);
+    @unlink($localPath);
     exit;
 }
 
